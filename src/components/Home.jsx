@@ -18,9 +18,9 @@ const Home = () => {
       >
         <Routes>
           <Route path="/" element={<Menu />} />
-          <Route path="/upload" element={<Upload />} />
+          <Route path="/upload/:tag?" element={<Upload />} />
           <Route path="/create" element={<Create />} />
-          <Route path="/manage" element={<Manage />} />
+          <Route path="/manage/:tag?" element={<Manage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

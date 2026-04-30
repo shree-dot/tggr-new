@@ -2,15 +2,40 @@ import React from "react";
 import app from "../base";
 import { Form, Button, Modal } from "./ui/compat";
 import { Link } from "react-router-dom";
-import { useForm } from "react-hook-form";
 
 const Create = () => {
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm();
-  const onSubmit = (data) => {
+  const [tagname, setTagName] = React.useState("");
+  const [filename] = React.useState([]);
+  const [access, setAccess] = React.useState(1);
+  const [users, setUsers] = React.useState([]);
+  const [show, setShow] = React.useState(false);
+  const [error, setError] = React.useState(false);
+  const [downloadURLs] = React.useState([]);
+  const [date] = React.useState(new Date());
+  const [description, setDescription] = React.useState("");
+  const [validationErrors, setValidationErrors] = React.useState({});
+
+  const validateForm = () => {
+    const errors = {};
+    if (!tagname || tagname.trim() === "") {
+      errors.tagname = "Tag name is required";
+    } else if (tagname.length > 20) {
+      errors.tagname = "Max 20 Characters";
+    } else if (/\s/.test(tagname)) {
+      errors.tagname = "Spaces Not Allowed";
+    }
+    return errors;
+  };
+
+  const onSubmit = (e) => {
+    e.preventDefault();
+    const errors = validateForm();
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors);
+      return;
+    }
+    setValidationErrors({});
+    
     app
       .firestore()
       .collection("tags")
@@ -46,16 +71,6 @@ const Create = () => {
     setUsers(app.auth().currentUser.uid);
   }, []);
 
-  const [tagname, setTagName] = React.useState("");
-  const [filename] = React.useState([]);
-  const [access, setAccess] = React.useState(1);
-  const [users, setUsers] = React.useState([]);
-  const [show, setShow] = React.useState(false);
-  const [error, setError] = React.useState(false);
-  const [downloadURLs] = React.useState([]);
-  const [date] = React.useState(new Date());
-  const [description, setDescription] = React.useState("");
-
   const handleClose = () => {
     setShow(false);
   };
@@ -76,7 +91,7 @@ const Create = () => {
       </section>
 
       <section className="create-form-card">
-        <Form className="font-weight-bold" onSubmit={handleSubmit(onSubmit)}>
+        <Form className="font-weight-bold" onSubmit={onSubmit}>
           <Form.Group controlId="formGroupEmail" className="create-field">
             <Form.Label className="create-label">Tag Name</Form.Label>
             <Form.Control
@@ -85,19 +100,8 @@ const Create = () => {
               placeholder="Unique Tag Name Here"
               value={tagname}
               onChange={(e) => setTagName(e.target.value)}
-              {...register("tagname", {
-                required: "Tag name is required",
-                maxLength: {
-                  value: 20,
-                  message: "Max 20 Characters",
-                },
-                pattern: {
-                  value: /^[\S]+$/,
-                  message: "Spaces Not Allowed",
-                },
-              })}
             />
-            <p className="create-error">{errors.tagname && errors.tagname.message}</p>
+            <p className="create-error">{validationErrors.tagname && validationErrors.tagname}</p>
             <a href="/" className="create-random-link">
               Or click here and we will generate a unique tag name
             </a>
