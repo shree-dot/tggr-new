@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useRef } from "react";
 import app from "../base";
 import {
+  Trash2,
   Star,
   File,
   FileText,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  Form,
   ProgressBar,
   Button,
   InputGroup,
@@ -25,6 +27,36 @@ import {
 } from "./ui/compat";
 import "../util.css";
 import firebase from "firebase/compat/app";
+
+const TAG_SORT_OPTIONS = {
+  activityDesc: "Latest activity",
+  nameAsc: "Name A-Z",
+  nameDesc: "Name Z-A",
+  dateDesc: "Newest tags",
+  dateAsc: "Oldest tags",
+};
+
+const getTimeValue = (value) => {
+  if (!value) {
+    return 0;
+  }
+
+  if (typeof value.toDate === "function") {
+    return value.toDate().getTime();
+  }
+
+  if (typeof value.seconds === "number") {
+    return value.seconds * 1000;
+  }
+
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
+const getTagCreatedTime = (tag) => getTimeValue(tag?.date || tag?.createdAt);
+
+const getTagActivityTime = (tag) =>
+  getTimeValue(tag?.lastActivityAt || tag?.updatedAt) || getTagCreatedTime(tag);
 
 const Upload = () => {
   const navigate = useNavigate();
@@ -56,7 +88,10 @@ const Upload = () => {
   const [userDocId, setUserDocId] = useState("");
   const [favoriteTags, setFavoriteTags] = useState([]);
   const [myTagQuery, setMyTagQuery] = useState("");
+  const [tagSortBy, setTagSortBy] = useState("activityDesc");
   const [isTagSidebarOpen, setIsTagSidebarOpen] = useState(false);
+  const [deleteTagCandidate, setDeleteTagCandidate] = useState(null);
+  const [deletingTag, setDeletingTag] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -79,7 +114,18 @@ const Upload = () => {
       .get()
       .then(function (querySnapshot) {
         querySnapshot.forEach(function (doc) {
-          setMyTags((mytags) => [...mytags, doc.data().name]);
+          const data = doc.data();
+          setMyTags((mytags) => [
+            ...mytags,
+            {
+              id: doc.id,
+              name: data.name,
+              date: data.date,
+              createdAt: data.createdAt,
+              lastActivityAt: data.lastActivityAt,
+              updatedAt: data.updatedAt,
+            },
+          ]);
         });
         setLoading(false);
       });
@@ -228,13 +274,137 @@ const Upload = () => {
     }
   };
 
-  const normalizedMyTags = useMemo(() => {
-    const safeTags = mytags
-      .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
-      .filter(Boolean);
-    const unique = Array.from(new Set(safeTags));
-    return unique.sort((a, b) => a.localeCompare(b));
-  }, [mytags]);
+  const deleteStorageFolder = async (folderRef) => {
+    const result = await folderRef.listAll();
+    await Promise.all(result.items.map((itemRef) => itemRef.delete()));
+    await Promise.all(result.prefixes.map((prefixRef) => deleteStorageFolder(prefixRef)));
+  };
+
+  const openDeleteTagModal = (name) => {
+    const tagItem =
+      normalizedMyTagItems.find((item) => item.name === name) || { name };
+    setDeleteTagCandidate(tagItem);
+  };
+
+  const closeDeleteTagModal = () => {
+    if (!deletingTag) {
+      setDeleteTagCandidate(null);
+    }
+  };
+
+  const deleteTagAndFiles = async () => {
+    if (!deleteTagCandidate?.name || deletingTag) {
+      return;
+    }
+
+    const name = deleteTagCandidate.name;
+    setDeletingTag(true);
+
+    try {
+      const db = app.firestore();
+      const tagSnapshot = deleteTagCandidate.id
+        ? await db.collection("tags").doc(deleteTagCandidate.id).get()
+        : null;
+
+      let tagDoc = tagSnapshot?.exists ? tagSnapshot : null;
+
+      if (!tagDoc) {
+        const lookup = await db
+          .collection("tags")
+          .where("name", "==", name)
+          .where("owner", "==", uid)
+          .limit(1)
+          .get();
+
+        if (!lookup.empty) {
+          tagDoc = lookup.docs[0];
+        }
+      }
+
+      await deleteStorageFolder(app.storage().ref(name));
+
+      if (tagDoc) {
+        const filesSnapshot = await tagDoc.ref.collection("files").get();
+        const batch = db.batch();
+        filesSnapshot.forEach((fileDoc) => batch.delete(fileDoc.ref));
+        batch.delete(tagDoc.ref);
+        await batch.commit();
+      }
+
+      if (userDocId) {
+        await db
+          .collection("users")
+          .doc(userDocId)
+          .update({
+            favoriteTags: firebase.firestore.FieldValue.arrayRemove(name),
+          });
+      }
+
+      setMyTags((tags) =>
+        tags.filter((tag) => (typeof tag === "string" ? tag : tag.name) !== name)
+      );
+      setFavoriteTags((tags) => tags.filter((tag) => tag !== name));
+
+      if (tagname === name) {
+        resetTagState();
+        setPending("none");
+        setTagName("");
+        setUploadedItems([]);
+        navigate("/upload");
+      }
+
+      setDeleteTagCandidate(null);
+    } catch (error) {
+      console.log("Tag delete error:", error);
+    } finally {
+      setDeletingTag(false);
+    }
+  };
+
+  const normalizedMyTagItems = useMemo(() => {
+    const unique = new Map();
+
+    mytags.forEach((tag) => {
+      const item =
+        typeof tag === "string"
+          ? { name: tag.trim() }
+          : { ...tag, name: typeof tag?.name === "string" ? tag.name.trim() : "" };
+
+      if (item.name && !unique.has(item.name)) {
+        unique.set(item.name, item);
+      }
+    });
+
+    const sorted = Array.from(unique.values());
+    sorted.sort((a, b) => {
+      const nameCompare = a.name.localeCompare(b.name);
+
+      if (tagSortBy === "nameDesc") {
+        return b.name.localeCompare(a.name);
+      }
+
+      if (tagSortBy === "dateDesc") {
+        return getTagCreatedTime(b) - getTagCreatedTime(a) || nameCompare;
+      }
+
+      if (tagSortBy === "dateAsc") {
+        return getTagCreatedTime(a) - getTagCreatedTime(b) || nameCompare;
+      }
+
+      if (tagSortBy === "activityDesc") {
+        return getTagActivityTime(b) - getTagActivityTime(a) || nameCompare;
+      }
+
+      return nameCompare;
+    });
+
+    return sorted;
+  }, [mytags, tagSortBy]);
+
+  const normalizedMyTags = useMemo(
+    () => normalizedMyTagItems.map((tag) => tag.name),
+    [normalizedMyTagItems]
+  );
 
   const favoriteSet = useMemo(() => new Set(favoriteTags), [favoriteTags]);
 
@@ -574,18 +744,31 @@ const Upload = () => {
             // Store core metadata quickly, then generate thumbnails in background.
             try {
               if (tagId) {
-                await db
-                  .collection("tags")
-                  .doc(tagId)
-                  .collection("files")
-                  .doc(filename)
-                  .set({
-                    uploadedBy: user,
-                    uploadedByUid: uid,
-                    uploadedAt: new Date(),
-                  });
+              await db
+                .collection("tags")
+                .doc(tagId)
+                .collection("files")
+                .doc(filename)
+                .set({
+                  uploadedBy: user,
+                  uploadedByUid: uid,
+                  uploadedAt: new Date(),
+                });
+              await db
+                .collection("tags")
+                .doc(tagId)
+                .update({
+                  lastActivityAt: firebase.firestore.FieldValue.serverTimestamp(),
+                });
+              setMyTags((tags) =>
+                tags.map((tag) =>
+                  (typeof tag === "string" ? tag : tag.name) === tagname
+                    ? { ...(typeof tag === "string" ? { name: tag } : tag), lastActivityAt: new Date() }
+                    : tag
+                )
+              );
 
-                queueThumbnailGeneration({
+              queueThumbnailGeneration({
                   selectedFile,
                   filename,
                   tagId,
@@ -744,6 +927,19 @@ const Upload = () => {
                   uploadedByUid: uid,
                   uploadedAt: new Date(),
                 });
+              await db
+                .collection("tags")
+                .doc(resolvedTagId)
+                .update({
+                  lastActivityAt: firebase.firestore.FieldValue.serverTimestamp(),
+                });
+              setMyTags((tags) =>
+                tags.map((tag) =>
+                  (typeof tag === "string" ? tag : tag.name) === tagname
+                    ? { ...(typeof tag === "string" ? { name: tag } : tag), lastActivityAt: new Date() }
+                    : tag
+                )
+              );
 
               queueThumbnailGeneration({
                 selectedFile: item.file,
@@ -1189,14 +1385,14 @@ const Upload = () => {
               border: "none",
             }}
           >
-            <Link to="/">
+            <Link to={`/manage/${encodeURIComponent(tagname)}`}>
               <Button
                 id="cusbtn"
                 variant="secondary"
                 onClick={handleClose}
                 style={{ fontWeight: "bold" }}
               >
-                Go Home
+                Manage Files
               </Button>
             </Link>
           </Modal.Footer>
@@ -1356,7 +1552,7 @@ const Upload = () => {
             <span className="manage-tag-count">{normalizedMyTags.length}</span>
           </div>
 
-          <div className="manage-tag-search-wrap">
+          <div className="manage-tag-search-wrap manage-tag-controls">
             <FormControl
               className="manage-tag-search"
               placeholder="Search tags"
@@ -1369,6 +1565,18 @@ const Upload = () => {
                 outline: "none",
               }}
             />
+            <Form.Select
+              value={tagSortBy}
+              onChange={(e) => setTagSortBy(e.target.value)}
+              className="manage-tag-sort"
+              aria-label="Sort tags"
+            >
+              {Object.entries(TAG_SORT_OPTIONS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Form.Select>
           </div>
 
           <div className="manage-tag-list" role="list" aria-label="All tags">
@@ -1393,6 +1601,15 @@ const Upload = () => {
                 >
                   <Star size={12} fill={favoriteSet.has(name) ? "currentColor" : "none"} />
                 </button>
+                <button
+                  type="button"
+                  className="manage-tag-delete"
+                  onClick={() => openDeleteTagModal(name)}
+                  title="Delete tag"
+                  aria-label={`Delete ${name}`}
+                >
+                  <Trash2 size={12} />
+                </button>
               </div>
             ))}
             {!filteredAllTags.length && (
@@ -1401,6 +1618,57 @@ const Upload = () => {
           </div>
         </aside>
       </div>
+
+      <Modal
+        show={Boolean(deleteTagCandidate)}
+        onHide={closeDeleteTagModal}
+        size="sm"
+        aria-labelledby="delete-tag-modal-title"
+        centered
+        transition={Fade}
+        backdropTransition={Fade}
+      >
+        <Modal.Header
+          style={{
+            backgroundColor: "var(--surface)",
+            color: "var(--danger)",
+            border: "none",
+          }}
+        >
+          <Modal.Title id="delete-tag-modal-title">
+            <b>Delete Tag?</b>
+          </Modal.Title>
+        </Modal.Header>
+
+        <Modal.Body
+          style={{ backgroundColor: "var(--surface)", color: "var(--text)", border: "none" }}
+        >
+          <div className="tag-delete-warning">
+            This will permanently delete <b>{deleteTagCandidate?.name}</b> and every file inside it.
+          </div>
+        </Modal.Body>
+
+        <Modal.Footer
+          style={{ backgroundColor: "var(--surface)", color: "var(--text)", border: "none" }}
+        >
+          <Button
+            variant="secondary"
+            onClick={closeDeleteTagModal}
+            disabled={deletingTag}
+            style={{ fontWeight: "bold" }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={deleteTagAndFiles}
+            disabled={deletingTag}
+            style={{ fontWeight: "bold" }}
+          >
+            {deletingTag ? "Deleting..." : "Delete Everything"}
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 };

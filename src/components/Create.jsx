@@ -3,6 +3,44 @@ import app from "../base";
 import { Form, Button, Modal } from "./ui/compat";
 import { Link } from "react-router-dom";
 
+const RANDOM_ADJECTIVES = [
+  "brave",
+  "bouncy",
+  "clever",
+  "cosmic",
+  "dapper",
+  "fuzzy",
+  "happy",
+  "jolly",
+  "mighty",
+  "nimble",
+  "quirky",
+  "rapid",
+  "snappy",
+  "sunny",
+  "witty",
+  "zesty",
+];
+
+const RANDOM_NAMES = [
+  "ada",
+  "babbage",
+  "curie",
+  "darwin",
+  "einstein",
+  "franklin",
+  "hopper",
+  "lovelace",
+  "newton",
+  "pasteur",
+  "raman",
+  "tesla",
+  "turing",
+  "watson",
+];
+
+const pickRandom = (items) => items[Math.floor(Math.random() * items.length)];
+
 const Create = () => {
   const [tagname, setTagName] = React.useState("");
   const [filename] = React.useState([]);
@@ -14,6 +52,7 @@ const Create = () => {
   const [date] = React.useState(new Date());
   const [description, setDescription] = React.useState("");
   const [validationErrors, setValidationErrors] = React.useState({});
+  const [generatingName, setGeneratingName] = React.useState(false);
 
   const validateForm = () => {
     const errors = {};
@@ -27,19 +66,68 @@ const Create = () => {
     return errors;
   };
 
+  const createRandomTagName = () => {
+    const adjective = pickRandom(RANDOM_ADJECTIVES);
+    const name = pickRandom(RANDOM_NAMES);
+    const suffix = Math.floor(Math.random() * 90) + 10;
+    const withSuffix = `${adjective}_${name}_${suffix}`;
+    const withoutSuffix = `${adjective}_${name}`;
+
+    return withSuffix.length <= 20 ? withSuffix : withoutSuffix;
+  };
+
+  const tagExists = async (name) => {
+    const snapshot = await app
+      .firestore()
+      .collection("tags")
+      .where("name", "==", name)
+      .get();
+
+    return !snapshot.empty;
+  };
+
+  const generateRandomTagName = async () => {
+    setGeneratingName(true);
+    setValidationErrors({});
+
+    try {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const randomName = createRandomTagName();
+        const exists = await tagExists(randomName);
+
+        if (!exists) {
+          setTagName(randomName);
+          setError(false);
+          return;
+        }
+      }
+
+      setTagName(createRandomTagName());
+      setError(false);
+    } catch (error) {
+      setTagName(createRandomTagName());
+      setError(false);
+      console.log("Random tag name check failed:", error);
+    } finally {
+      setGeneratingName(false);
+    }
+  };
+
   const onSubmit = (e) => {
     e.preventDefault();
+    const cleanTagName = tagname.trim();
     const errors = validateForm();
     if (Object.keys(errors).length > 0) {
       setValidationErrors(errors);
       return;
     }
     setValidationErrors({});
+    setTagName(cleanTagName);
     
     app
       .firestore()
       .collection("tags")
-      .where("name", "==", tagname)
+      .where("name", "==", cleanTagName)
       .get()
       .then(function (querySnapshot) {
         if (querySnapshot.docs.length >= 1) {
@@ -47,12 +135,13 @@ const Create = () => {
         } else {
           const db = app.firestore();
           db.collection("tags").add({
-            name: tagname,
+            name: cleanTagName,
             filenames: filename,
             access: access,
             users: [`${users}`],
             urls: downloadURLs,
             date: date,
+            lastActivityAt: date,
             owner: users,
             desc: description,
             requests: [],
@@ -102,9 +191,14 @@ const Create = () => {
               onChange={(e) => setTagName(e.target.value)}
             />
             <p className="create-error">{validationErrors.tagname && validationErrors.tagname}</p>
-            <a href="/" className="create-random-link">
-              Or click here and we will generate a unique tag name
-            </a>
+            <button
+              type="button"
+              className="create-random-link"
+              onClick={generateRandomTagName}
+              disabled={generatingName}
+            >
+              {generatingName ? "Generating..." : "Or just click here and we will generate one for you"}
+            </button>
           </Form.Group>
 
           <Form.Group controlId="exampleForm.ControlSelect2" className="create-field">
@@ -212,6 +306,15 @@ const Create = () => {
         <Modal.Footer
           style={{ backgroundColor: "var(--surface)", color: "var(--text)", border: "none" }}
         >
+          <Button
+            id="cusbtn"
+            type="button"
+            onClick={generateRandomTagName}
+            disabled={generatingName}
+            style={{ color: "var(--on-primary)", fontWeight: "bold" }}
+          >
+            {generatingName ? "Generating..." : "Generate Name"}
+          </Button>
           <Button
             id="cusbtn"
             variant="secondary"

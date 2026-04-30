@@ -36,6 +36,36 @@ const SORT_OPTIONS = {
   sizeAsc: "Size small-large",
 };
 
+const TAG_SORT_OPTIONS = {
+  activityDesc: "Latest activity",
+  nameAsc: "Name A-Z",
+  nameDesc: "Name Z-A",
+  dateDesc: "Newest tags",
+  dateAsc: "Oldest tags",
+};
+
+const getTimeValue = (value) => {
+  if (!value) {
+    return 0;
+  }
+
+  if (typeof value.toDate === "function") {
+    return value.toDate().getTime();
+  }
+
+  if (typeof value.seconds === "number") {
+    return value.seconds * 1000;
+  }
+
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
+const getTagCreatedTime = (tag) => getTimeValue(tag?.date || tag?.createdAt);
+
+const getTagActivityTime = (tag) =>
+  getTimeValue(tag?.lastActivityAt || tag?.updatedAt) || getTagCreatedTime(tag);
+
 const Manage = () => {
   const navigate = useNavigate();
   const { tag: routeTag } = useParams();
@@ -72,7 +102,10 @@ const Manage = () => {
   const [layout, setLayout] = useState("tiles");
   const [favoriteTags, setFavoriteTags] = useState([]);
   const [myTagQuery, setMyTagQuery] = useState("");
+  const [tagSortBy, setTagSortBy] = useState("activityDesc");
   const [isTagSidebarOpen, setIsTagSidebarOpen] = useState(false);
+  const [deleteTagCandidate, setDeleteTagCandidate] = useState(null);
+  const [deletingTag, setDeletingTag] = useState(false);
   const loadFilesRequestIdRef = React.useRef(0);
 
   React.useEffect(() => {
@@ -96,7 +129,18 @@ const Manage = () => {
       .get()
       .then((querySnapshot) => {
         querySnapshot.forEach((doc) => {
-          setMyTags((tags) => [...tags, doc.data().name]);
+          const data = doc.data();
+          setMyTags((tags) => [
+            ...tags,
+            {
+              id: doc.id,
+              name: data.name,
+              date: data.date,
+              createdAt: data.createdAt,
+              lastActivityAt: data.lastActivityAt,
+              updatedAt: data.updatedAt,
+            },
+          ]);
         });
         setLoading(false);
       });
@@ -456,6 +500,93 @@ const Manage = () => {
     }
   };
 
+  const deleteStorageFolder = async (folderRef) => {
+    const result = await folderRef.listAll();
+    await Promise.all(result.items.map((itemRef) => itemRef.delete()));
+    await Promise.all(result.prefixes.map((prefixRef) => deleteStorageFolder(prefixRef)));
+  };
+
+  const openDeleteTagModal = (name) => {
+    const tagItem =
+      normalizedMyTagItems.find((item) => item.name === name) || { name };
+    setDeleteTagCandidate(tagItem);
+  };
+
+  const closeDeleteTagModal = () => {
+    if (!deletingTag) {
+      setDeleteTagCandidate(null);
+    }
+  };
+
+  const deleteTagAndFiles = async () => {
+    if (!deleteTagCandidate?.name || deletingTag) {
+      return;
+    }
+
+    const name = deleteTagCandidate.name;
+    setDeletingTag(true);
+
+    try {
+      const db = app.firestore();
+      const tagSnapshot = deleteTagCandidate.id
+        ? await db.collection("tags").doc(deleteTagCandidate.id).get()
+        : null;
+
+      let tagDoc = tagSnapshot?.exists ? tagSnapshot : null;
+
+      if (!tagDoc) {
+        const lookup = await db
+          .collection("tags")
+          .where("name", "==", name)
+          .where("owner", "==", uid)
+          .limit(1)
+          .get();
+
+        if (!lookup.empty) {
+          tagDoc = lookup.docs[0];
+        }
+      }
+
+      await deleteStorageFolder(app.storage().ref(name));
+
+      if (tagDoc) {
+        const filesSnapshot = await tagDoc.ref.collection("files").get();
+        const batch = db.batch();
+        filesSnapshot.forEach((fileDoc) => batch.delete(fileDoc.ref));
+        batch.delete(tagDoc.ref);
+        await batch.commit();
+      }
+
+      if (userDocId) {
+        await db
+          .collection("users")
+          .doc(userDocId)
+          .update({
+            favoriteTags: firebase.firestore.FieldValue.arrayRemove(name),
+          });
+      }
+
+      setMyTags((tags) =>
+        tags.filter((tag) => (typeof tag === "string" ? tag : tag.name) !== name)
+      );
+      setFavoriteTags((tags) => tags.filter((tag) => tag !== name));
+
+      if (tagname === name) {
+        resetTagState();
+        setPending("none");
+        setLoadingFiles(false);
+        setTagName("");
+        navigate("/manage");
+      }
+
+      setDeleteTagCandidate(null);
+    } catch (error) {
+      console.log("Tag delete error:", error);
+    } finally {
+      setDeletingTag(false);
+    }
+  };
+
   const requestAccess = () => {
     const db = app.firestore();
     db.collection("tags")
@@ -527,13 +658,50 @@ const Manage = () => {
     return copy;
   }, [files, sortBy]);
 
-  const normalizedMyTags = useMemo(() => {
-    const safeTags = mytags
-      .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
-      .filter(Boolean);
-    const unique = Array.from(new Set(safeTags));
-    return unique.sort((a, b) => a.localeCompare(b));
-  }, [mytags]);
+  const normalizedMyTagItems = useMemo(() => {
+    const unique = new Map();
+
+    mytags.forEach((tag) => {
+      const item =
+        typeof tag === "string"
+          ? { name: tag.trim() }
+          : { ...tag, name: typeof tag?.name === "string" ? tag.name.trim() : "" };
+
+      if (item.name && !unique.has(item.name)) {
+        unique.set(item.name, item);
+      }
+    });
+
+    const sorted = Array.from(unique.values());
+    sorted.sort((a, b) => {
+      const nameCompare = a.name.localeCompare(b.name);
+
+      if (tagSortBy === "nameDesc") {
+        return b.name.localeCompare(a.name);
+      }
+
+      if (tagSortBy === "dateDesc") {
+        return getTagCreatedTime(b) - getTagCreatedTime(a) || nameCompare;
+      }
+
+      if (tagSortBy === "dateAsc") {
+        return getTagCreatedTime(a) - getTagCreatedTime(b) || nameCompare;
+      }
+
+      if (tagSortBy === "activityDesc") {
+        return getTagActivityTime(b) - getTagActivityTime(a) || nameCompare;
+      }
+
+      return nameCompare;
+    });
+
+    return sorted;
+  }, [mytags, tagSortBy]);
+
+  const normalizedMyTags = useMemo(
+    () => normalizedMyTagItems.map((tag) => tag.name),
+    [normalizedMyTagItems]
+  );
 
   const favoriteSet = useMemo(() => new Set(favoriteTags), [favoriteTags]);
 
@@ -949,16 +1117,28 @@ const Manage = () => {
         >
           <div className="manage-tag-head">
             <h3 className="manage-tag-title">All Tags</h3>
-            <span className="manage-tag-count">{mytags.length}</span>
+            <span className="manage-tag-count">{normalizedMyTags.length}</span>
           </div>
 
-          <div className="manage-tag-search-wrap">
+          <div className="manage-tag-search-wrap manage-tag-controls">
             <FormControl
               value={myTagQuery}
               onChange={(e) => setMyTagQuery(e.target.value)}
               placeholder="Search tags"
               className="manage-tag-search"
             />
+            <Form.Select
+              value={tagSortBy}
+              onChange={(e) => setTagSortBy(e.target.value)}
+              className="manage-tag-sort"
+              aria-label="Sort tags"
+            >
+              {Object.entries(TAG_SORT_OPTIONS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Form.Select>
           </div>
 
           <div className="manage-tag-list">
@@ -982,6 +1162,15 @@ const Manage = () => {
                   title={favoriteSet.has(name) ? "Unfavorite" : "Favorite"}
                 >
                   <Star size={12} fill={favoriteSet.has(name) ? "currentColor" : "none"} />
+                </button>
+                <button
+                  type="button"
+                  className="manage-tag-delete"
+                  onClick={() => openDeleteTagModal(name)}
+                  title="Delete tag"
+                  aria-label={`Delete ${name}`}
+                >
+                  <Trash2 size={12} />
                 </button>
               </div>
             ))}
@@ -1066,7 +1255,58 @@ const Manage = () => {
             </Button>
           </Modal.Footer>
         </Modal>
-    </div>
+
+        <Modal
+          show={Boolean(deleteTagCandidate)}
+          onHide={closeDeleteTagModal}
+          size="sm"
+          aria-labelledby="delete-tag-modal-title"
+          centered
+          transition={Fade}
+          backdropTransition={Fade}
+        >
+          <Modal.Header
+            style={{
+              backgroundColor: "var(--surface)",
+              color: "var(--danger)",
+              border: "none",
+            }}
+          >
+            <Modal.Title id="delete-tag-modal-title">
+              <b>Delete Tag?</b>
+            </Modal.Title>
+          </Modal.Header>
+
+          <Modal.Body
+            style={{ backgroundColor: "var(--surface)", color: "var(--text)", border: "none" }}
+          >
+            <div className="tag-delete-warning">
+              This will permanently delete <b>{deleteTagCandidate?.name}</b> and every file inside it.
+            </div>
+          </Modal.Body>
+
+          <Modal.Footer
+            style={{ backgroundColor: "var(--surface)", color: "var(--text)", border: "none" }}
+          >
+            <Button
+              variant="secondary"
+              onClick={closeDeleteTagModal}
+              disabled={deletingTag}
+              style={{ fontWeight: "bold" }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={deleteTagAndFiles}
+              disabled={deletingTag}
+              style={{ fontWeight: "bold" }}
+            >
+              {deletingTag ? "Deleting..." : "Delete Everything"}
+            </Button>
+          </Modal.Footer>
+        </Modal>
+      </div>
   );
 };
 
