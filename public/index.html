@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="shortcut icon" href="icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <!-- CSS only -->
+    <!--
+      manifest.json provides metadata used when your web app is installed on a
+      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
+    -->
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <!--
+      Notice the use of %PUBLIC_URL% in the tags above.
+      It will be replaced with the URL of the `public` folder during the build.
+      Only files inside the `public` folder can be referenced from the HTML.
+
+      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
+      work correctly both with client-side routing and a non-root public URL.
+      Learn how to configure a non-root public URL by running `npm run build`.
+    -->
+    <title>Tggr - Tag Based File Sharing</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+    <!--
+      This HTML file is a template.
+      If you open it directly in the browser, you will see an empty page.
+
+      You can add webfonts, meta tags, or analytics to this file.
+      The build step will place the bundled scripts into the <body> tag.
+
+      To begin the development, run `npm start` or `yarn start`.
+      To create a production bundle, use `npm run build` or `yarn build`.
+    -->
+    <script src="https://www.gstatic.com/firebasejs/7.15.5/firebase-app.js"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/7.15.5/firebase-performance.js"></script>
+    <script>
+      // TODO: Replace the following with your app's Firebase project configuration
+      var firebaseConfig = {
+        apiKey: "AIzaSyCkK9J9MXPdcTAfo0s87SllRADglZ16nP8",
+        authDomain: "files-d9315.firebaseapp.com",
+        databaseURL: "https://files-d9315.firebaseio.com",
+        projectId: "files-d9315",
+        storageBucket: "files-d9315.appspot.com",
+        messagingSenderId: "298771617646",
+        appId: "1:298771617646:web:60140a9a5af685df35937f",
+        measurementId: "G-HQT69B1VN7",
+      };
+
+      // Initialize Firebase
+      firebase.initializeApp(firebaseConfig);
+
+      // Initialize Performance Monitoring and get a reference to the service
+      var perf = firebase.performance();
+    </script>
+  </body>
+</html>
