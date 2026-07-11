@@ -90,7 +90,7 @@ const Header = () => {
           </button>
 
           <Link className="app-brand" to="/">
-            <img src="/landing/tggr.png" alt="Tggr" />
+            <img src="/landing/tggr.webp" alt="Tggr" />
           </Link>
         </div>
 

@@ -8,21 +8,6 @@ const Login = () => {
   const navigate = useNavigate();
   const { currentUser, refreshUser } = useContext(AuthContext);
 
-  const handleLogin = useCallback(
-    async (event) => {
-      event.preventDefault();
-      const { email, password } = event.target.elements;
-      try {
-        await api.login(email.value, password.value);
-        await refreshUser();
-        navigate("/");
-      } catch (error) {
-        alert(error.message);
-      }
-    },
-    [navigate, refreshUser]
-  );
-
   const handleGoogleCredential = useCallback(
     async (credential) => {
       try {
@@ -40,13 +25,7 @@ const Login = () => {
     return <Navigate to="/" replace />;
   }
 
-  return (
-    <PublicLanding
-      mode="login"
-      onSubmit={handleLogin}
-      onGoogleCredential={handleGoogleCredential}
-    />
-  );
+  return <PublicLanding mode="login" onGoogleCredential={handleGoogleCredential} />;
 };
 
 export default Login;

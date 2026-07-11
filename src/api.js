@@ -31,10 +31,6 @@ const api = {
   me: () => request("/api/auth/me"),
   googleLogin: (credential) =>
     request("/api/auth/google", { method: "POST", body: { credential } }),
-  login: (email, password) =>
-    request("/api/auth/login", { method: "POST", body: { email, password } }),
-  signup: (name, email, password) =>
-    request("/api/auth/signup", { method: "POST", body: { name, email, password } }),
   logout: () => request("/api/auth/logout", { method: "POST" }),
 
   // --- tags ---

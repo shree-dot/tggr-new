@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 
 @font-face {
@@ -35,8 +33,8 @@
 }
 
 :root {
-  --font-sans: "Poppins", "Segoe UI", sans-serif;
-  --font-display: "Poppins", "Segoe UI", sans-serif;
+  --font-sans: "Aspekta", "Segoe UI", sans-serif;
+  --font-display: "Aspekta", "Segoe UI", sans-serif;
   --gutter: 10px;
   --bg: #0f1419;
   --surface: #181f26;
@@ -44,16 +42,16 @@
   --border: #2f3d49;
   --text: #e2ebf3;
   --muted: #9daeba;
-  --primary: #39c07a;
-  --primary-strong: #2ea263;
-  --on-primary: #082113;
-  --focus-ring: rgba(57, 192, 122, 0.35);
+  --primary: #c8ff72;
+  --primary-strong: #aee94f;
+  --on-primary: #071008;
+  --focus-ring: rgba(200, 255, 114, 0.35);
   --danger: #ff7f92;
   --danger-strong: #c85566;
   --danger-soft: rgba(200, 85, 102, 0.18);
-  --ok: #74d99f;
-  --ok-strong: #2f8555;
-  --ok-soft: rgba(47, 133, 85, 0.2);
+  --ok: #c8ff72;
+  --ok-strong: #8fbf3e;
+  --ok-soft: rgba(200, 255, 114, 0.18);
   --scrollbar-thumb: rgba(157, 174, 186, 0.32);
   --scrollbar-thumb-hover: rgba(157, 174, 186, 0.52);
   --scrollbar-track: transparent;
@@ -113,6 +111,7 @@ h6 {
 
 html {
   font-size: 16px;
+  scroll-behavior: smooth;
 }
 
 a {
@@ -124,6 +123,30 @@ a {
   max-width: 1120px;
   margin: 0 auto;
   padding: 0 1rem;
+}
+
+/* Dashboard content: fluid on laptops, capped and centered on big screens. */
+.app-main {
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+@media (min-width: 1100px) {
+  .app-main {
+    max-width: 1280px;
+    padding: 0 1.5rem;
+  }
+}
+
+@media (min-width: 1700px) {
+  .app-main {
+    max-width: 1440px;
+  }
+
+  .app-header {
+    max-width: 1488px; /* 1440 content + header's own padding */
+  }
 }
 
 /* Utility classes replacing bootstrap usage */
@@ -235,12 +258,12 @@ a {
 .activeTrue {
   background: linear-gradient(180deg, var(--primary), var(--primary-strong));
   color: var(--on-primary) !important;
-  border-color: rgba(57, 192, 122, 0.8);
+  border-color: rgba(200, 255, 114, 0.8);
 }
 
 .activeFalse:hover {
-  background: rgba(57, 192, 122, 0.16);
-  border-color: rgba(57, 192, 122, 0.4);
+  background: rgba(200, 255, 114, 0.16);
+  border-color: rgba(200, 255, 114, 0.4);
   transform: translateY(-1px);
 }
 
@@ -293,8 +316,8 @@ a {
 }
 
 .auth-top-link:hover {
-  border-color: rgba(57, 192, 122, 0.4);
-  background: rgba(57, 192, 122, 0.14);
+  border-color: rgba(200, 255, 114, 0.4);
+  background: rgba(200, 255, 114, 0.14);
 }
 
 .auth-top-link.is-active {
@@ -314,7 +337,7 @@ a {
   border-style: solid;
   border-color: var(--border);
   background:
-    radial-gradient(circle at 14% 20%, rgba(57, 192, 122, 0.16), transparent 42%),
+    radial-gradient(circle at 14% 20%, rgba(200, 255, 114, 0.16), transparent 42%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
 }
 
@@ -460,7 +483,7 @@ a {
 
 .public-landing-hero {
   position: relative;
-  min-height: min(850px, calc(100vh - 32px));
+  min-height: min(720px, calc(100vh - 32px));
   overflow: hidden;
   display: grid;
   grid-template-columns: minmax(300px, 0.68fr) minmax(330px, 0.44fr);
@@ -468,11 +491,11 @@ a {
   gap: 34px;
   width: 100%;
   margin: -72px 0 0;
-  padding: 156px max(48px, calc((100% - 1120px) / 2)) 190px;
+  padding: 140px max(48px, calc((100% - 1120px) / 2)) 110px;
   background:
-    linear-gradient(90deg, rgba(3, 6, 5, 0.96) 0%, rgba(3, 6, 5, 0.78) 32%, rgba(3, 6, 5, 0.22) 64%, rgba(3, 6, 5, 0.1) 100%),
     linear-gradient(180deg, rgba(3, 6, 5, 0.24) 0%, rgba(3, 6, 5, 0) 38%, rgba(2, 6, 4, 0.9) 84%, #020604 100%),
-    url("/landing/hero_bg.png") center right / cover no-repeat;
+    radial-gradient(ellipse 1100px 800px at 86% 22%, #10231563 0%, rgba(8, 18, 11, 0.5) 45%, transparent 75%),
+    linear-gradient(120deg, #04080a 0%, #050b07 55%, #061009 100%);
 }
 
 .public-landing-hero::before {
@@ -490,6 +513,64 @@ a {
 .public-auth-card {
   position: relative;
   z-index: 2;
+}
+
+/* Vector ring backdrop (hero + CTA band). Parallax is driven by --mx/--my,
+   which are only non-zero while the pointer is over the section. */
+.rings-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  --mx: 0;
+  --my: 0;
+}
+
+.rings-backdrop svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.rings-backdrop .ring,
+.rings-backdrop .ring-halo {
+  transition:
+    transform 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.5s ease;
+  will-change: transform;
+}
+
+.rings-backdrop .ring {
+  opacity: 0.45;
+}
+
+.rings-backdrop .ring-halo {
+  transform: translate(calc(var(--mx) * 10px), calc(var(--my) * 8px));
+}
+
+.rings-backdrop .ring-1 {
+  transform: translate(calc(var(--mx) * 30px), calc(var(--my) * 22px));
+}
+
+.rings-backdrop .ring-2 {
+  transform: translate(calc(var(--mx) * 24px), calc(var(--my) * 18px));
+}
+
+.rings-backdrop .ring-3 {
+  transform: translate(calc(var(--mx) * 18px), calc(var(--my) * 13px));
+}
+
+.rings-backdrop .ring-4 {
+  transform: translate(calc(var(--mx) * 12px), calc(var(--my) * 9px));
+}
+
+.rings-backdrop .ring-5 {
+  transform: translate(calc(var(--mx) * 7px), calc(var(--my) * 5px));
+}
+
+.public-landing-hero:hover .rings-backdrop .ring,
+.public-landing-cta-band:hover .rings-backdrop .ring {
+  opacity: 0.8;
 }
 
 .public-landing-hero-copy h1 {
@@ -550,7 +631,6 @@ a {
 .public-auth-card {
   justify-self: end;
   width: min(390px, 100%);
-  min-height: 488px;
   border: 1px solid rgba(200, 255, 114, 0.22);
   border-radius: 20px;
   background:
@@ -616,14 +696,89 @@ a {
   font-weight: 650;
 }
 
+/* Google-only auth: our themed button with the real (invisible) GIS button
+   stretched on top so clicks reach Google's iframe. */
+.public-google-area {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.public-google-wrap {
+  position: relative;
+  height: 48px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.public-google-visual {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--public-green);
+  color: #071008;
+  font-weight: 650;
+  font-size: 15px;
+  border-radius: 12px;
+  pointer-events: none;
+  transition: filter 0.18s ease, transform 0.18s ease;
+}
+
+.public-google-visual svg {
+  background: #fff;
+  border-radius: 50%;
+  padding: 2px;
+  width: 22px;
+  height: 22px;
+}
+
+.public-google-wrap:hover .public-google-visual {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.public-google-real {
+  position: absolute;
+  inset: 0;
+  opacity: 0.0001;
+  display: flex;
+  justify-content: center;
+}
+
+/* GIS renders a fixed ~40px-tall button; stretch it (invisibly) to cover the
+   whole 48px themed button so every pixel is clickable. */
+.public-google-real > div {
+  transform: scale(1.25, 1.3);
+  transform-origin: center center;
+}
+
+.public-google-status {
+  text-align: center;
+  color: var(--public-muted);
+  font-size: 13px;
+  padding: 12px 8px;
+}
+
+.public-google-hint {
+  margin: 0;
+  text-align: center;
+  color: var(--public-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
 .public-landing-hero-visual {
   display: none;
 }
 
 .public-landing-section {
   width: min(1120px, calc(100% - 48px));
-  margin: -132px auto 0;
-  padding: 150px 0 4px;
+  margin: -80px auto 0;
+  padding: 110px 0 4px;
   position: relative;
   z-index: 1;
 }
@@ -697,6 +852,22 @@ a {
     linear-gradient(100deg, rgba(40, 104, 23, 0.28), rgba(4, 13, 11, 0.84) 48%, rgba(8, 23, 13, 0.54)),
     var(--public-panel);
   padding: 38px;
+  position: relative;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.public-work-card:hover {
+  border-color: rgba(200, 255, 114, 0.5);
+  box-shadow: inset 0 0 60px rgba(200, 255, 114, 0.05);
+  z-index: 1;
+}
+
+.public-work-art {
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.public-work-card:hover .public-work-art {
+  transform: scale(1.07) rotate(-2deg);
 }
 
 .public-work-card + .public-work-card {
@@ -759,7 +930,7 @@ a {
   justify-content: center;
   border-radius: 12px;
   background: rgba(104, 180, 46, 0.34);
-  font-family: "JetBrains Mono", "Cascadia Mono", "Consolas", monospace !important;
+  font-family: "Cascadia Mono", "Consolas", monospace !important;
   font-weight: 400;
   font-size: 13px;
   letter-spacing: 0;
@@ -795,9 +966,9 @@ a {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background:
-    linear-gradient(90deg, rgba(3, 6, 5, 0.88), rgba(3, 6, 5, 0.5) 52%, rgba(3, 6, 5, 0.78)),
-    linear-gradient(180deg, rgba(5, 8, 7, 0.2), rgba(5, 8, 7, 0.95)),
-    url("/landing/footer.png") center / cover no-repeat;
+    linear-gradient(180deg, rgba(5, 8, 7, 0.3), rgba(5, 8, 7, 0.85)),
+    radial-gradient(ellipse 900px 500px at 50% 115%, rgba(21, 44, 26, 0.55) 0%, rgba(9, 19, 12, 0.4) 50%, transparent 78%),
+    linear-gradient(120deg, #04080a 0%, #050b07 55%, #061009 100%);
 }
 
 .public-cta-arrow {
@@ -822,9 +993,9 @@ a {
   box-shadow: 0 0 34px rgba(200, 255, 114, 0.24);
 }
 
-.public-landing-cta-band > div {
+.public-landing-cta-band > div:not(.rings-backdrop) {
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
 .public-landing-cta-band h2 {
@@ -910,7 +1081,7 @@ a {
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(circle at 15% 20%, rgba(57, 192, 122, 0.14), transparent 45%),
+    radial-gradient(circle at 15% 20%, rgba(200, 255, 114, 0.14), transparent 45%),
     radial-gradient(circle at 90% 20%, rgba(96, 165, 250, 0.12), transparent 48%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
   animation: fade-up 0.55s ease both;
@@ -970,8 +1141,8 @@ a {
 }
 
 .menu-cta-secondary:hover {
-  border-color: rgba(57, 192, 122, 0.5);
-  background: rgba(57, 192, 122, 0.13);
+  border-color: rgba(200, 255, 114, 0.5);
+  background: rgba(200, 255, 114, 0.13);
 }
 
 .menu-grid {
@@ -1002,7 +1173,7 @@ a {
 
 .menu-card:hover {
   transform: translateY(-3px);
-  border-color: rgba(57, 192, 122, 0.55);
+  border-color: rgba(200, 255, 114, 0.55);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
 }
 
@@ -1069,7 +1240,7 @@ a {
 }
 
 .app-noti-btn:hover {
-  border-color: rgba(57, 192, 122, 0.55);
+  border-color: rgba(200, 255, 114, 0.55);
 }
 
 .app-noti-btn-label {
@@ -1130,7 +1301,7 @@ a {
 }
 
 .app-profile-btn:hover {
-  border-color: rgba(57, 192, 122, 0.55);
+  border-color: rgba(200, 255, 114, 0.55);
 }
 
 .app-profile-avatar {
@@ -1294,7 +1465,7 @@ ul {
   border-style: solid;
   border-color: var(--border);
   background:
-    radial-gradient(circle at 85% 15%, rgba(57, 192, 122, 0.16), transparent 40%),
+    radial-gradient(circle at 85% 15%, rgba(200, 255, 114, 0.16), transparent 40%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
 }
 
@@ -1372,8 +1543,8 @@ ul {
   display: inline-flex;
   align-items: center;
   margin-top: 0.2rem;
-  border: 1px solid rgba(57, 192, 122, 0.35);
-  background: rgba(57, 192, 122, 0.12);
+  border: 1px solid rgba(200, 255, 114, 0.35);
+  background: rgba(200, 255, 114, 0.12);
   color: #bff5d8;
   text-decoration: none;
   border-radius: 999px;
@@ -1384,8 +1555,8 @@ ul {
 }
 
 .create-random-link:hover {
-  border-color: rgba(57, 192, 122, 0.55);
-  background: rgba(57, 192, 122, 0.2);
+  border-color: rgba(200, 255, 114, 0.55);
+  background: rgba(200, 255, 114, 0.2);
 }
 
 .create-random-link:disabled {
@@ -1621,12 +1792,12 @@ ul {
 
 .tag-chip:hover {
   border-color: var(--primary) !important;
-  background-color: rgba(57, 192, 122, 0.12) !important;
+  background-color: rgba(200, 255, 114, 0.12) !important;
 }
 
 .tag-chip-active {
   border-color: var(--primary) !important;
-  background-color: rgba(57, 192, 122, 0.2) !important;
+  background-color: rgba(200, 255, 114, 0.2) !important;
 }
 
 .manage-tag-panel {
@@ -2134,10 +2305,10 @@ ul {
 }
 
 .upload-dropzone {
-  border: 1px dashed rgba(57, 192, 122, 0.45);
+  border: 1px dashed rgba(200, 255, 114, 0.45);
   border-radius: 14px;
   padding: 14px 14px 12px;
-  background: linear-gradient(160deg, rgba(57, 192, 122, 0.08) 0%, rgba(34, 44, 53, 0.45) 100%);
+  background: linear-gradient(160deg, rgba(200, 255, 114, 0.08) 0%, rgba(34, 44, 53, 0.45) 100%);
   margin-bottom: 10px;
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
@@ -2152,12 +2323,12 @@ ul {
   width: 42px;
   height: 42px;
   border-radius: 11px;
-  border: 1px solid rgba(57, 192, 122, 0.35);
+  border: 1px solid rgba(200, 255, 114, 0.35);
   color: var(--primary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(57, 192, 122, 0.1);
+  background: rgba(200, 255, 114, 0.1);
   margin-bottom: 8px;
 }
 
@@ -2201,8 +2372,8 @@ ul {
 }
 
 .tag-details-modern {
-  background: linear-gradient(135deg, rgba(57, 192, 122, 0.08) 0%, rgba(57, 192, 122, 0.03) 100%);
-  border: 1px solid rgba(57, 192, 122, 0.25);
+  background: linear-gradient(135deg, rgba(200, 255, 114, 0.08) 0%, rgba(200, 255, 114, 0.03) 100%);
+  border: 1px solid rgba(200, 255, 114, 0.25);
   border-radius: 12px;
   padding: 20px 24px;
   display: grid;

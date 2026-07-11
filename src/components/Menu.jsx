@@ -1,8 +1,8 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import create from "../svg/create.png";
-import upload from "../svg/upload.png";
-import manage from "../svg/manage.png";
+import create from "../svg/create.webp";
+import upload from "../svg/upload.webp";
+import manage from "../svg/manage.webp";
 
 const Menu = () => {
   return (

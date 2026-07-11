@@ -6,7 +6,6 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@fontsource/atkinson-hyperlegible": "^5.2.8",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.14.0",

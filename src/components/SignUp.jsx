@@ -1,27 +1,12 @@
 import React, { useCallback, useContext } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import PublicLanding from "./PublicLanding.jsx";
 import api from "../api.js";
 import { AuthContext } from "../Auth.jsx";
 
 const SignUp = () => {
   const navigate = useNavigate();
-  const { refreshUser } = useContext(AuthContext);
-
-  const handleSignUp = useCallback(
-    async (event) => {
-      event.preventDefault();
-      const { email, password, name } = event.target.elements;
-      try {
-        await api.signup(name.value, email.value, password.value);
-        await refreshUser();
-        navigate("/");
-      } catch (error) {
-        alert(error.message);
-      }
-    },
-    [navigate, refreshUser]
-  );
+  const { currentUser, refreshUser } = useContext(AuthContext);
 
   const handleGoogleCredential = useCallback(
     async (credential) => {
@@ -36,13 +21,11 @@ const SignUp = () => {
     [navigate, refreshUser]
   );
 
-  return (
-    <PublicLanding
-      mode="signup"
-      onSubmit={handleSignUp}
-      onGoogleCredential={handleGoogleCredential}
-    />
-  );
+  if (currentUser) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <PublicLanding mode="signup" onGoogleCredential={handleGoogleCredential} />;
 };
 
 export default SignUp;

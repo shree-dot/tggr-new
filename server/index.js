@@ -1,7 +1,6 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import multer from "multer";
-import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import fs from "fs";
@@ -151,65 +150,6 @@ const fileRowToJson = (tag, row) => ({
 
 app.get("/api/config", (req, res) => {
   res.json({ googleClientId: GOOGLE_CLIENT_ID, allowSignup: ALLOW_SIGNUP });
-});
-
-app.post("/api/auth/signup", authRateLimit, async (req, res) => {
-  const { name, email, password } = req.body || {};
-  if (!name?.trim() || !email?.trim() || !password || password.length < 6) {
-    return res
-      .status(400)
-      .json({ error: "Name, email and a password of at least 6 characters are required" });
-  }
-
-  const existing = getUserByEmail.get(email.trim());
-  const hash = await bcrypt.hash(password, 10);
-
-  if (existing) {
-    if (existing.password_hash || existing.auth_provider !== "imported") {
-      return res.status(409).json({ error: "An account with this email already exists" });
-    }
-    // Account imported from Firebase without a usable password — claim it.
-    // Allowed even when open signup is disabled: no new account is created.
-    db.prepare(
-      "UPDATE users SET password_hash = ?, name = ?, auth_provider = 'password' WHERE id = ?"
-    ).run(hash, name.trim(), existing.id);
-    issueToken(req, res, existing.uid);
-    return res.json({ user: publicUser(getUserByUid.get(existing.uid)) });
-  }
-
-  if (!ALLOW_SIGNUP) {
-    return res.status(403).json({ error: "Sign-ups are disabled on this server" });
-  }
-
-  const uid = crypto.randomUUID().replace(/-/g, "");
-  db.prepare(
-    "INSERT INTO users (uid, name, email, password_hash) VALUES (?, ?, ?, ?)"
-  ).run(uid, name.trim(), email.trim(), hash);
-  issueToken(req, res, uid);
-  res.json({ user: publicUser(getUserByUid.get(uid)) });
-});
-
-app.post("/api/auth/login", authRateLimit, async (req, res) => {
-  const { email, password } = req.body || {};
-  const user = email ? getUserByEmail.get(email.trim()) : null;
-  if (!user) {
-    return res.status(401).json({ error: "Invalid email or password" });
-  }
-  if (!user.password_hash) {
-    if (user.auth_provider === "google") {
-      return res.status(409).json({ error: "This account uses Google Sign-In. Use the Google button instead." });
-    }
-    return res.status(409).json({
-      error:
-        "This account was imported from Firebase. Please sign up again with the same email to set a new password — your tags and files are preserved.",
-    });
-  }
-  const ok = await bcrypt.compare(password || "", user.password_hash);
-  if (!ok) {
-    return res.status(401).json({ error: "Invalid email or password" });
-  }
-  issueToken(req, res, user.uid);
-  res.json({ user: publicUser(user) });
 });
 
 // Google Sign-In: the browser gets an ID token from Google Identity Services
@@ -622,4 +562,9 @@ if (fs.existsSync(DIST_DIR)) {
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`tggr server listening on http://0.0.0.0:${PORT}`);
   console.log(`Data directory: ${DATA_DIR}`);
+  if (!GOOGLE_CLIENT_ID) {
+    console.warn(
+      "WARNING: GOOGLE_CLIENT_ID is not set — Google Sign-In is the only auth method, so nobody will be able to log in."
+    );
+  }
 });

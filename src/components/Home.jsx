@@ -10,12 +10,7 @@ const Home = () => {
   return (
     <div>
       <Header />
-      <main
-        id="main"
-        role="main"
-        className="container"
-        style={{ maxWidth: "100%" }}
-      >
+      <main id="main" role="main" className="app-main">
         <Routes>
           <Route path="/" element={<Menu />} />
           <Route path="/upload/:tag?" element={<Upload />} />
