@@ -24,22 +24,26 @@ if (!keyPath || !fs.existsSync(keyPath)) {
   process.exit(1);
 }
 
-let admin;
+let initializeApp, cert, getAuth, getFirestore, getStorage;
 try {
-  admin = require("firebase-admin");
+  ({ initializeApp, cert } = require("firebase-admin/app"));
+  ({ getAuth } = require("firebase-admin/auth"));
+  ({ getFirestore } = require("firebase-admin/firestore"));
+  ({ getStorage } = require("firebase-admin/storage"));
 } catch {
   console.error("firebase-admin is not installed. Run: npm install firebase-admin");
   process.exit(1);
 }
 
 const serviceAccount = JSON.parse(fs.readFileSync(keyPath, "utf8"));
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
+initializeApp({
+  credential: cert(serviceAccount),
   storageBucket: `${serviceAccount.project_id}.appspot.com`,
 });
 
-const firestore = admin.firestore();
-const bucket = admin.storage().bucket();
+const auth = getAuth();
+const firestore = getFirestore();
+const bucket = getStorage().bucket();
 
 const toIso = (value) => {
   if (!value) return new Date().toISOString();
@@ -49,12 +53,54 @@ const toIso = (value) => {
 };
 
 const upsertUser = db.prepare(`
-  INSERT INTO users (uid, name, email, password_hash, favorite_tags)
-  VALUES (@uid, @name, @email, NULL, @favorite_tags)
+  INSERT INTO users (uid, name, email, password_hash, auth_provider, favorite_tags)
+  VALUES (@uid, @name, @email, NULL, 'imported', @favorite_tags)
   ON CONFLICT(uid) DO UPDATE SET
     name = excluded.name,
     favorite_tags = excluded.favorite_tags
 `);
+
+// Rewrite every reference to a uid (used when merging a locally-created
+// account with its imported Firebase counterpart).
+const remapUid = (oldUid, newUid) => {
+  db.prepare("UPDATE tags SET owner_uid = ? WHERE owner_uid = ?").run(newUid, oldUid);
+  db.prepare("UPDATE files SET uploaded_by_uid = ? WHERE uploaded_by_uid = ?").run(newUid, oldUid);
+  db.prepare("UPDATE access_requests SET requester_uid = ? WHERE requester_uid = ?").run(newUid, oldUid);
+  for (const tag of db.prepare("SELECT id, allowed_uids FROM tags").all()) {
+    const allowed = parseJson(tag.allowed_uids, []);
+    if (allowed.includes(oldUid)) {
+      const next = [...new Set(allowed.map((u) => (u === oldUid ? newUid : u)))];
+      db.prepare("UPDATE tags SET allowed_uids = ? WHERE id = ?").run(JSON.stringify(next), tag.id);
+    }
+  }
+};
+
+const importUser = (user) => {
+  const byEmail = db
+    .prepare("SELECT * FROM users WHERE email = ? COLLATE NOCASE")
+    .get(user.email);
+
+  if (byEmail && byEmail.uid !== user.uid) {
+    // Same email already signed up locally with a different uid. Merge: the
+    // local account adopts the Firebase uid (so imported tags/files attach to
+    // it) and keeps its local password. Anything the local uid already owned
+    // is remapped as well.
+    remapUid(byEmail.uid, user.uid);
+    const favorites = new Set([
+      ...parseJson(byEmail.favorite_tags, []),
+      ...parseJson(user.favorite_tags, []),
+    ]);
+    db.prepare("UPDATE users SET uid = ?, favorite_tags = ? WHERE id = ?").run(
+      user.uid,
+      JSON.stringify([...favorites]),
+      byEmail.id
+    );
+    console.log(`  merged existing local account ${user.email} into Firebase uid ${user.uid}`);
+    return;
+  }
+
+  upsertUser.run(user);
+};
 
 const upsertTag = db.prepare(`
   INSERT INTO tags (name, owner_uid, access, desc, allowed_uids, created_at, last_activity_at)
@@ -84,7 +130,7 @@ const migrateUsers = async () => {
   const authUsers = new Map();
   let pageToken;
   do {
-    const page = await admin.auth().listUsers(1000, pageToken);
+    const page = await auth.listUsers(1000, pageToken);
     page.users.forEach((u) => authUsers.set(u.uid, u));
     pageToken = page.pageToken;
   } while (pageToken);
@@ -97,7 +143,7 @@ const migrateUsers = async () => {
     if (!uid) return;
     const authUser = authUsers.get(uid);
     const email = authUser?.email || `${uid}@imported.local`;
-    upsertUser.run({
+    importUser({
       uid,
       name: data.name || authUser?.displayName || "User",
       email,

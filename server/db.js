@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE COLLATE NOCASE,
   password_hash TEXT,
+  auth_provider TEXT NOT NULL DEFAULT 'password',
   favorite_tags TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
@@ -57,6 +58,15 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE INDEX IF NOT EXISTS idx_tags_owner ON tags(owner_uid);
 CREATE INDEX IF NOT EXISTS idx_files_tag ON files(tag_id);
 `);
+
+// Upgrade databases created before the auth_provider column existed.
+try {
+  db.exec("ALTER TABLE users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'password'");
+  // Pre-existing passwordless rows can only be Firebase imports.
+  db.exec("UPDATE users SET auth_provider = 'imported' WHERE password_hash IS NULL");
+} catch {
+  // column already exists
+}
 
 export const parseJson = (value, fallback) => {
   try {

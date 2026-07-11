@@ -7,6 +7,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { OAuth2Client } from "google-auth-library";
 import db, { DATA_DIR, FILES_DIR, parseJson } from "./db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -14,6 +15,9 @@ const PORT = Number(process.env.PORT || 3001);
 const DIST_DIR = path.resolve(process.env.DIST_DIR || path.join(__dirname, "..", "dist"));
 const COOKIE_NAME = "tggr_token";
 const TOKEN_TTL = "30d";
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
+const ALLOW_SIGNUP = (process.env.ALLOW_SIGNUP || "true").toLowerCase() !== "false";
+const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
 const secretFile = path.join(DATA_DIR, ".jwt-secret");
 const JWT_SECRET =
@@ -28,8 +32,40 @@ const JWT_SECRET =
 
 const app = express();
 app.disable("x-powered-by");
+// Behind cloudflared/reverse proxies req.secure reflects X-Forwarded-Proto.
+app.set("trust proxy", 1);
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
+
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "same-origin");
+  next();
+});
+
+// Simple in-memory rate limiter for the auth endpoints (brute-force guard).
+const authAttempts = new Map();
+const AUTH_WINDOW_MS = 10 * 60 * 1000;
+const AUTH_MAX_ATTEMPTS = 20;
+const authRateLimit = (req, res, next) => {
+  const now = Date.now();
+  const key = req.ip;
+  const entry = authAttempts.get(key) || { count: 0, windowStart: now };
+  if (now - entry.windowStart > AUTH_WINDOW_MS) {
+    entry.count = 0;
+    entry.windowStart = now;
+  }
+  entry.count += 1;
+  authAttempts.set(key, entry);
+  if (authAttempts.size > 10000) {
+    authAttempts.clear();
+  }
+  if (entry.count > AUTH_MAX_ATTEMPTS) {
+    return res.status(429).json({ error: "Too many attempts. Try again later." });
+  }
+  next();
+};
 
 /* ---------- helpers ---------- */
 
@@ -58,11 +94,12 @@ const getUserByUid = db.prepare("SELECT * FROM users WHERE uid = ?");
 const getUserByEmail = db.prepare("SELECT * FROM users WHERE email = ? COLLATE NOCASE");
 const getTagByName = db.prepare("SELECT * FROM tags WHERE name = ?");
 
-const issueToken = (res, uid) => {
+const issueToken = (req, res, uid) => {
   const token = jwt.sign({ uid }, JWT_SECRET, { expiresIn: TOKEN_TTL });
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
+    secure: req.secure, // Secure over the Cloudflare tunnel, plain http on LAN
     maxAge: 30 * 24 * 60 * 60 * 1000,
     path: "/",
   });
@@ -112,7 +149,11 @@ const fileRowToJson = (tag, row) => ({
 
 /* ---------- auth ---------- */
 
-app.post("/api/auth/signup", async (req, res) => {
+app.get("/api/config", (req, res) => {
+  res.json({ googleClientId: GOOGLE_CLIENT_ID, allowSignup: ALLOW_SIGNUP });
+});
+
+app.post("/api/auth/signup", authRateLimit, async (req, res) => {
   const { name, email, password } = req.body || {};
   if (!name?.trim() || !email?.trim() || !password || password.length < 6) {
     return res
@@ -124,34 +165,40 @@ app.post("/api/auth/signup", async (req, res) => {
   const hash = await bcrypt.hash(password, 10);
 
   if (existing) {
-    if (existing.password_hash) {
+    if (existing.password_hash || existing.auth_provider !== "imported") {
       return res.status(409).json({ error: "An account with this email already exists" });
     }
     // Account imported from Firebase without a usable password — claim it.
-    db.prepare("UPDATE users SET password_hash = ?, name = ? WHERE id = ?").run(
-      hash,
-      name.trim(),
-      existing.id
-    );
-    issueToken(res, existing.uid);
+    // Allowed even when open signup is disabled: no new account is created.
+    db.prepare(
+      "UPDATE users SET password_hash = ?, name = ?, auth_provider = 'password' WHERE id = ?"
+    ).run(hash, name.trim(), existing.id);
+    issueToken(req, res, existing.uid);
     return res.json({ user: publicUser(getUserByUid.get(existing.uid)) });
+  }
+
+  if (!ALLOW_SIGNUP) {
+    return res.status(403).json({ error: "Sign-ups are disabled on this server" });
   }
 
   const uid = crypto.randomUUID().replace(/-/g, "");
   db.prepare(
     "INSERT INTO users (uid, name, email, password_hash) VALUES (?, ?, ?, ?)"
   ).run(uid, name.trim(), email.trim(), hash);
-  issueToken(res, uid);
+  issueToken(req, res, uid);
   res.json({ user: publicUser(getUserByUid.get(uid)) });
 });
 
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", authRateLimit, async (req, res) => {
   const { email, password } = req.body || {};
   const user = email ? getUserByEmail.get(email.trim()) : null;
   if (!user) {
     return res.status(401).json({ error: "Invalid email or password" });
   }
   if (!user.password_hash) {
+    if (user.auth_provider === "google") {
+      return res.status(409).json({ error: "This account uses Google Sign-In. Use the Google button instead." });
+    }
     return res.status(409).json({
       error:
         "This account was imported from Firebase. Please sign up again with the same email to set a new password — your tags and files are preserved.",
@@ -161,8 +208,53 @@ app.post("/api/auth/login", async (req, res) => {
   if (!ok) {
     return res.status(401).json({ error: "Invalid email or password" });
   }
-  issueToken(res, user.uid);
+  issueToken(req, res, user.uid);
   res.json({ user: publicUser(user) });
+});
+
+// Google Sign-In: the browser gets an ID token from Google Identity Services
+// and posts it here; we verify it against our client id and issue our own
+// session cookie. Accounts are matched (or created) by verified email.
+app.post("/api/auth/google", authRateLimit, async (req, res) => {
+  if (!googleClient) {
+    return res.status(501).json({ error: "Google Sign-In is not configured on this server" });
+  }
+  const { credential } = req.body || {};
+  if (!credential) {
+    return res.status(400).json({ error: "Missing Google credential" });
+  }
+
+  let payload;
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: GOOGLE_CLIENT_ID,
+    });
+    payload = ticket.getPayload();
+  } catch {
+    return res.status(401).json({ error: "Google sign-in could not be verified" });
+  }
+
+  if (!payload?.email || !payload.email_verified) {
+    return res.status(401).json({ error: "Google account has no verified email" });
+  }
+
+  const existing = getUserByEmail.get(payload.email);
+  if (existing) {
+    issueToken(req, res, existing.uid);
+    return res.json({ user: publicUser(existing) });
+  }
+
+  if (!ALLOW_SIGNUP) {
+    return res.status(403).json({ error: "Sign-ups are disabled on this server" });
+  }
+
+  const uid = crypto.randomUUID().replace(/-/g, "");
+  db.prepare(
+    "INSERT INTO users (uid, name, email, password_hash, auth_provider) VALUES (?, ?, ?, NULL, 'google')"
+  ).run(uid, payload.name || payload.email.split("@")[0], payload.email);
+  issueToken(req, res, uid);
+  res.json({ user: publicUser(getUserByUid.get(uid)) });
 });
 
 app.post("/api/auth/logout", (req, res) => {
@@ -353,9 +445,44 @@ const loadTagWithAccess = (req, res) => {
   return tag;
 };
 
+// Keep the DB in sync with the tag's directory so files copied onto the NAS
+// manually (e.g. dropped in over SMB or restored from a Firebase download)
+// show up without any import step.
+const syncTagDirWithDb = (tag) => {
+  const dir = tagDir(tag.name);
+  if (!fs.existsSync(dir)) return;
+
+  const onDisk = new Set();
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile() || entry.name.startsWith(".")) continue;
+    onDisk.add(entry.name);
+
+    const existing = db
+      .prepare("SELECT id, size FROM files WHERE tag_id = ? AND filename = ?")
+      .get(tag.id, entry.name);
+    if (existing) continue;
+
+    const stat = fs.statSync(path.join(dir, entry.name));
+    const hasThumb = fs.existsSync(path.join(thumbsDir(tag.name), `${entry.name}.webp`));
+    db.prepare(
+      `INSERT INTO files (tag_id, filename, size, uploaded_by, uploaded_by_uid, has_thumbnail, uploaded_at)
+       VALUES (?, ?, ?, 'Unknown', '', ?, ?)`
+    ).run(tag.id, entry.name, stat.size, hasThumb ? 1 : 0, stat.mtime.toISOString());
+  }
+
+  // Drop rows for files that no longer exist on disk.
+  const rows = db.prepare("SELECT id, filename FROM files WHERE tag_id = ?").all(tag.id);
+  for (const row of rows) {
+    if (!onDisk.has(row.filename)) {
+      db.prepare("DELETE FROM files WHERE id = ?").run(row.id);
+    }
+  }
+};
+
 app.get("/api/tags/:name/files", requireAuth, (req, res) => {
   const tag = loadTagWithAccess(req, res);
   if (!tag) return;
+  syncTagDirWithDb(tag);
   const rows = db
     .prepare("SELECT * FROM files WHERE tag_id = ? ORDER BY uploaded_at DESC")
     .all(tag.id);
@@ -466,6 +593,11 @@ const serveTagFile = (req, res, isThumb) => {
     : path.join(tagDir(tag.name), filename);
   if (!fs.existsSync(filePath)) {
     return res.status(404).send("Not found");
+  }
+  // HTML-ish uploads must not render on this origin (stored XSS); force download.
+  const ext = path.extname(filename).toLowerCase();
+  if ([".html", ".htm", ".xhtml", ".shtml", ".svg", ".xml"].includes(ext)) {
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
   }
   res.sendFile(filePath);
 };
