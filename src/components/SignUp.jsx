@@ -1,32 +1,26 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import PublicLanding from "./PublicLanding.jsx";
-import app from "../base";
+import api from "../api.js";
+import { AuthContext } from "../Auth.jsx";
 
 const SignUp = () => {
   const navigate = useNavigate();
+  const { refreshUser } = useContext(AuthContext);
 
   const handleSignUp = useCallback(
     async (event) => {
       event.preventDefault();
       const { email, password, name } = event.target.elements;
       try {
-        await app
-          .auth()
-          .createUserWithEmailAndPassword(email.value, password.value);
-        const db = app.firestore();
-        db.collection("users").add({
-          name: name.value,
-          photoURL: "",
-          uid: app.auth().currentUser.uid,
-          notis: [],
-        });
+        await api.signup(name.value, email.value, password.value);
+        await refreshUser();
         navigate("/");
       } catch (error) {
-        alert(error);
+        alert(error.message);
       }
     },
-    [navigate]
+    [navigate, refreshUser]
   );
 
   return <PublicLanding mode="signup" onSubmit={handleSignUp} />;

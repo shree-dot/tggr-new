@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useRef } from "react";
-import app from "../base";
+import api from "../api.js";
 import {
   Trash2,
   Star,
@@ -26,7 +26,6 @@ import {
   Fade,
 } from "./ui/compat";
 import "../util.css";
-import firebase from "firebase/compat/app";
 
 const TAG_SORT_OPTIONS = {
   activityDesc: "Latest activity",
@@ -39,14 +38,6 @@ const TAG_SORT_OPTIONS = {
 const getTimeValue = (value) => {
   if (!value) {
     return 0;
-  }
-
-  if (typeof value.toDate === "function") {
-    return value.toDate().getTime();
-  }
-
-  if (typeof value.seconds === "number") {
-    return value.seconds * 1000;
   }
 
   const time = new Date(value).getTime();
@@ -79,13 +70,7 @@ const Upload = () => {
   const [pending, setPending] = useState("none");
   const [owner, setOwner] = useState("");
   const [description, setDescription] = React.useState();
-  const [user, setUser] = useState("");
-  const [uid, setUID] = useState("");
-  const [notis, setNotis] = useState([]);
-  const [reqTags, setReqTags] = useState([]);
   const [shows1, setShows1] = useState(false);
-  const [names, setNames] = useState([]);
-  const [userDocId, setUserDocId] = useState("");
   const [favoriteTags, setFavoriteTags] = useState([]);
   const [myTagQuery, setMyTagQuery] = useState("");
   const [tagSortBy, setTagSortBy] = useState("activityDesc");
@@ -96,37 +81,21 @@ const Upload = () => {
   const fileInputRef = useRef(null);
 
   React.useEffect(() => {
-    const uid = app.auth().currentUser.uid;
-    const db = app.firestore();
-    db.collection("users")
-      .where("uid", "==", uid)
-      .get()
-      .then(function (querySnapshot) {
-        querySnapshot.forEach(function (doc) {
-          setUser(doc.data().name);
-          setUID(doc.data().uid);
-          setUserDocId(doc.id);
-          setFavoriteTags(doc.data().favoriteTags || []);
-        });
-      });
-    db.collection("tags")
-      .where("owner", "==", uid)
-      .get()
-      .then(function (querySnapshot) {
-        querySnapshot.forEach(function (doc) {
-          const data = doc.data();
-          setMyTags((mytags) => [
-            ...mytags,
-            {
-              id: doc.id,
-              name: data.name,
-              date: data.date,
-              createdAt: data.createdAt,
-              lastActivityAt: data.lastActivityAt,
-              updatedAt: data.updatedAt,
-            },
-          ]);
-        });
+    api
+      .me()
+      .then(({ user }) => {
+        setFavoriteTags(user.favoriteTags || []);
+      })
+      .catch((error) => console.log("User load error:", error));
+
+    api
+      .myTags()
+      .then(({ tags }) => {
+        setMyTags(tags);
+        setLoading(false);
+      })
+      .catch((error) => {
+        console.log("Tags load error:", error);
         setLoading(false);
       });
   }, []);
@@ -177,67 +146,40 @@ const Upload = () => {
     setPending("block");
   };
 
-  const resolveTag = (name) => {
+  const resolveTag = async (name) => {
     if (!name) {
       return;
     }
     resetTagState();
-    app
-      .firestore()
-      .collection("tags")
-      .where("name", "==", name)
-      .get()
-      .then(function (querySnapshot) {
-        setPending("none");
-        if (!querySnapshot.empty) {
-          app
-            .firestore()
-            .collection("tags")
-            .where("name", "==", name)
-            .get()
-            .then(function (querySnapshot) {
-              querySnapshot.forEach(function (doc) {
-                if (doc.data().access === "2") {
-                  if (doc.data().users.includes(uid)) {
-                    setMones("block");
-                    setNones("none");
-                    setNonesx("none");
-                    setShow("block");
-                    getOwner(name);
-                  } else {
-                    const db = app.firestore();
-                    db.collection("tags")
-                      .where("name", "==", name)
-                      .get()
-                      .then(function (querySnapshot) {
-                        querySnapshot.forEach(function (doc) {
-                          setNames(doc.data().reqNames);
-                          setNotis(doc.data().requests);
-                          setReqTags(doc.data().reqTags);
-                        });
-                      });
-                    setNonesx("block");
-                    setMones("none");
-                    setShow("none");
-                  }
-                }
-              });
-            });
-          setMones("block");
-          setNones("none");
-          setNonesx("none");
-          setShow("block");
-        } else {
-          setNones("block");
-          setNonesx("none");
-          setMones("none");
-          setShow("none");
-        }
-      })
-      .catch(function (error) {
-        console.log("Error getting documents: ", error);
-      });
-    getOwner(name);
+    try {
+      const info = await api.getTag(name);
+      setPending("none");
+
+      if (!info.exists) {
+        setNones("block");
+        setNonesx("none");
+        setMones("none");
+        setShow("none");
+        return;
+      }
+
+      if (!info.allowed) {
+        setNonesx("block");
+        setMones("none");
+        setShow("none");
+        return;
+      }
+
+      setMones("block");
+      setNones("none");
+      setNonesx("none");
+      setShow("block");
+      setDescription(info.desc);
+      setOwner(info.isOwner ? `${info.owner.name} ( You )` : info.owner.name);
+    } catch (error) {
+      setPending("none");
+      console.log("Error resolving tag: ", error);
+    }
   };
 
   const myClick = (name) => {
@@ -248,10 +190,6 @@ const Upload = () => {
   };
 
   const toggleFavorite = async (name) => {
-    if (!userDocId) {
-      return;
-    }
-
     const isFav = favoriteTags.includes(name);
     const nextFavs = isFav
       ? favoriteTags.filter((tag) => tag !== name)
@@ -259,25 +197,11 @@ const Upload = () => {
     setFavoriteTags(nextFavs);
 
     try {
-      await app
-        .firestore()
-        .collection("users")
-        .doc(userDocId)
-        .update({
-          favoriteTags: isFav
-            ? firebase.firestore.FieldValue.arrayRemove(name)
-            : firebase.firestore.FieldValue.arrayUnion(name),
-        });
+      await api.setFavorite(name, !isFav);
     } catch (error) {
       setFavoriteTags(favoriteTags);
       console.log("Favorite update error:", error);
     }
-  };
-
-  const deleteStorageFolder = async (folderRef) => {
-    const result = await folderRef.listAll();
-    await Promise.all(result.items.map((itemRef) => itemRef.delete()));
-    await Promise.all(result.prefixes.map((prefixRef) => deleteStorageFolder(prefixRef)));
   };
 
   const openDeleteTagModal = (name) => {
@@ -301,44 +225,7 @@ const Upload = () => {
     setDeletingTag(true);
 
     try {
-      const db = app.firestore();
-      const tagSnapshot = deleteTagCandidate.id
-        ? await db.collection("tags").doc(deleteTagCandidate.id).get()
-        : null;
-
-      let tagDoc = tagSnapshot?.exists ? tagSnapshot : null;
-
-      if (!tagDoc) {
-        const lookup = await db
-          .collection("tags")
-          .where("name", "==", name)
-          .where("owner", "==", uid)
-          .limit(1)
-          .get();
-
-        if (!lookup.empty) {
-          tagDoc = lookup.docs[0];
-        }
-      }
-
-      await deleteStorageFolder(app.storage().ref(name));
-
-      if (tagDoc) {
-        const filesSnapshot = await tagDoc.ref.collection("files").get();
-        const batch = db.batch();
-        filesSnapshot.forEach((fileDoc) => batch.delete(fileDoc.ref));
-        batch.delete(tagDoc.ref);
-        await batch.commit();
-      }
-
-      if (userDocId) {
-        await db
-          .collection("users")
-          .doc(userDocId)
-          .update({
-            favoriteTags: firebase.firestore.FieldValue.arrayRemove(name),
-          });
-      }
+      await api.deleteTag(name);
 
       setMyTags((tags) =>
         tags.filter((tag) => (typeof tag === "string" ? tag : tag.name) !== name)
@@ -438,29 +325,6 @@ const Upload = () => {
     resolveTag(cleanTag);
   };
 
-  const getOwner = async (name) => {
-    const db = app.firestore();
-    await db
-      .collection("tags")
-      .where("name", "==", name)
-      .get()
-      .then(function (querySnapshot) {
-        querySnapshot.forEach(function (doc) {
-          setDescription(doc.data().desc);
-          db.collection("users")
-            .where("uid", "==", doc.data().owner)
-            .get()
-            .then(function (querySnapshot) {
-              querySnapshot.forEach(function (doc) {
-                if (uid === doc.data().uid) {
-                  setOwner(doc.data().name + " ( You )");
-                } else setOwner(doc.data().name);
-              });
-            });
-        });
-      });
-  };
-
   const eCheckBase = (e) => {
     if (e.key === "Enter") {
       checkBase();
@@ -533,19 +397,6 @@ const Upload = () => {
       image.src = objectUrl;
     });
 
-  const isImageFilename = (filename = "") => {
-    const lower = filename.toLowerCase();
-    return (
-      lower.endsWith(".png") ||
-      lower.endsWith(".jpg") ||
-      lower.endsWith(".jpeg") ||
-      lower.endsWith(".gif") ||
-      lower.endsWith(".webp") ||
-      lower.endsWith(".bmp") ||
-      lower.endsWith(".svg")
-    );
-  };
-
   const getFileExtension = (filename) => {
     const idx = filename.lastIndexOf(".");
     if (idx === -1 || idx === filename.length - 1) {
@@ -614,8 +465,8 @@ const Upload = () => {
 
   const formatSpeed = (mbPerSec = 0) => `${mbPerSec.toFixed(mbPerSec >= 10 ? 1 : 2)} MB/s`;
 
-  const queueThumbnailGeneration = ({ selectedFile, filename, tagId, itemId }) => {
-    if (!isImageFile(selectedFile) || !tagId) {
+  const queueThumbnailGeneration = ({ selectedFile, filename, itemId }) => {
+    if (!isImageFile(selectedFile)) {
       return;
     }
 
@@ -623,24 +474,11 @@ const Upload = () => {
     (async () => {
       try {
         const thumbnailBlob = await createThumbnailBlob(selectedFile);
-        const thumbnailPath = `${tagname}/.thumbs/${filename}.webp`;
-        const thumbnailRef = app.storage().ref(thumbnailPath);
-        await thumbnailRef.put(thumbnailBlob, { contentType: "image/webp" });
-        const thumbnailURL = await thumbnailRef.getDownloadURL();
-
-        await app
-          .firestore()
-          .collection("tags")
-          .doc(tagId)
-          .collection("files")
-          .doc(filename)
-          .set(
-            {
-              thumbnailPath,
-              thumbnailURL,
-            },
-            { merge: true }
-          );
+        const { thumbnailURL } = await api.uploadThumbnail(
+          tagname,
+          filename,
+          thumbnailBlob
+        );
 
         setUploadedItems((prev) =>
           prev.map((item) =>
@@ -656,6 +494,74 @@ const Upload = () => {
         console.log("Background thumbnail generation skipped:", thumbnailError);
       }
     })();
+  };
+
+  const uploadSingleFile = async (selectedFile, itemId) => {
+    const filename = selectedFile.name;
+
+    try {
+      const { file: uploaded } = await api.uploadFile(tagname, selectedFile, {
+        onProgress: ({ bytesTransferred, totalBytes }) => {
+          const roundedProgress = Math.round((bytesTransferred / totalBytes) * 100);
+          setUploadedItems((prev) =>
+            prev.map((item) =>
+              item.id === itemId
+                ? {
+                    ...item,
+                    progress: roundedProgress,
+                    transferredBytes: bytesTransferred,
+                    totalBytes,
+                    speedMbps:
+                      bytesTransferred > (item.lastSampleBytes || 0)
+                        ? (bytesTransferred - (item.lastSampleBytes || 0)) /
+                          (1024 * 1024) /
+                          Math.max((Date.now() - (item.lastSampleTime || Date.now())) / 1000, 0.15)
+                        : item.speedMbps || 0,
+                    lastSampleBytes: bytesTransferred,
+                    lastSampleTime: Date.now(),
+                  }
+                : item
+            )
+          );
+        },
+      });
+
+      setMyTags((tags) =>
+        tags.map((tag) =>
+          (typeof tag === "string" ? tag : tag.name) === tagname
+            ? { ...(typeof tag === "string" ? { name: tag } : tag), lastActivityAt: new Date().toISOString() }
+            : tag
+        )
+      );
+
+      queueThumbnailGeneration({
+        selectedFile,
+        filename,
+        itemId,
+      });
+
+      setUploadedItems((prev) =>
+        prev.map((item) =>
+          item.id === itemId
+            ? {
+                ...item,
+                url: uploaded.url,
+                progress: 100,
+                status: "done",
+                transferredBytes: item.totalBytes || item.transferredBytes,
+                speedMbps: 0,
+              }
+            : item
+        )
+      );
+    } catch (error) {
+      console.log(error);
+      setUploadedItems((prev) =>
+        prev.map((item) =>
+          item.id === itemId ? { ...item, status: "error" } : item
+        )
+      );
+    }
   };
 
   const processSelectedFiles = async (selectedFiles) => {
@@ -680,146 +586,11 @@ const Upload = () => {
     }));
     setUploadedItems((prev) => [...pendingItems, ...prev]);
 
-    const db = app.firestore();
-
-    let resolvedTagId = "";
-    try {
-      const tagSnapshot = await db
-        .collection("tags")
-        .where("name", "==", tagname)
-        .limit(1)
-        .get();
-      if (!tagSnapshot.empty) {
-        resolvedTagId = tagSnapshot.docs[0].id;
-      }
-    } catch (tagLookupError) {
-      console.log("Tag lookup error:", tagLookupError);
-    }
-
-    const uploadSingleFile = async (selectedFile, itemId, tagId) => {
-      const filename = selectedFile.name;
-      const storageRef = app.storage().ref(`${tagname}`).child(filename);
-      const uploadTask = storageRef.put(selectedFile);
-
-      await new Promise((resolve, reject) => {
-        uploadTask.on(
-          "state_changed",
-          (snapshot) => {
-            const fileProgress =
-              (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-            const roundedProgress = Math.round(fileProgress);
-            setUploadedItems((prev) =>
-              prev.map((item) =>
-                item.id === itemId
-                  ? {
-                      ...item,
-                      progress: roundedProgress,
-                      transferredBytes: snapshot.bytesTransferred,
-                      totalBytes: snapshot.totalBytes,
-                      speedMbps:
-                        snapshot.bytesTransferred > (item.lastSampleBytes || 0)
-                          ? (snapshot.bytesTransferred - (item.lastSampleBytes || 0)) /
-                            (1024 * 1024) /
-                            Math.max((Date.now() - (item.lastSampleTime || Date.now())) / 1000, 0.15)
-                          : item.speedMbps || 0,
-                      lastSampleBytes: snapshot.bytesTransferred,
-                      lastSampleTime: Date.now(),
-                    }
-                  : item
-              )
-            );
-          },
-          (error) => {
-            console.log(error);
-            setUploadedItems((prev) =>
-              prev.map((item) =>
-                item.id === itemId ? { ...item, status: "error" } : item
-              )
-            );
-            reject(error);
-          },
-          async () => {
-            const downloadURL = await storageRef.getDownloadURL();
-
-            // Store core metadata quickly, then generate thumbnails in background.
-            try {
-              if (tagId) {
-              await db
-                .collection("tags")
-                .doc(tagId)
-                .collection("files")
-                .doc(filename)
-                .set({
-                  uploadedBy: user,
-                  uploadedByUid: uid,
-                  uploadedAt: new Date(),
-                });
-              await db
-                .collection("tags")
-                .doc(tagId)
-                .update({
-                  lastActivityAt: firebase.firestore.FieldValue.serverTimestamp(),
-                });
-              setMyTags((tags) =>
-                tags.map((tag) =>
-                  (typeof tag === "string" ? tag : tag.name) === tagname
-                    ? { ...(typeof tag === "string" ? { name: tag } : tag), lastActivityAt: new Date() }
-                    : tag
-                )
-              );
-
-              queueThumbnailGeneration({
-                  selectedFile,
-                  filename,
-                  tagId,
-                  itemId,
-                });
-              }
-
-              setUploadedItems((prev) =>
-                prev.map((item) =>
-                  item.id === itemId
-                    ? {
-                        ...item,
-                        url: downloadURL,
-                        progress: 100,
-                        status: "done",
-                        transferredBytes: item.totalBytes || item.transferredBytes,
-                        speedMbps: 0,
-                      }
-                    : item
-                )
-              );
-            } catch (err) {
-              console.log("Error storing file metadata:", err);
-              setUploadedItems((prev) =>
-                prev.map((item) =>
-                  item.id === itemId
-                    ? {
-                        ...item,
-                        url: downloadURL,
-                        progress: 100,
-                        status: "done",
-                        transferredBytes: item.totalBytes || item.transferredBytes,
-                        speedMbps: 0,
-                      }
-                    : item
-                )
-              );
-            }
-
-            resolve();
-          }
-        );
-      });
-    };
-
     for (let index = 0; index < selectedFiles.length; index++) {
       const selectedFile = selectedFiles[index];
       const itemId = pendingItems[index].id;
-      await uploadSingleFile(selectedFile, itemId, resolvedTagId);
+      await uploadSingleFile(selectedFile, itemId);
     }
-
   };
 
   const uploadFiles = async (event) => {
@@ -857,171 +628,20 @@ const Upload = () => {
       )
     );
 
-    const db = app.firestore();
-    let resolvedTagId = "";
-    try {
-      const tagSnapshot = await db
-        .collection("tags")
-        .where("name", "==", tagname)
-        .limit(1)
-        .get();
-      if (!tagSnapshot.empty) {
-        resolvedTagId = tagSnapshot.docs[0].id;
-      }
-    } catch (tagLookupError) {
-      console.log("Tag lookup error:", tagLookupError);
-    }
-    const filename = item.file.name;
-    const storageRef = app.storage().ref(`${tagname}`).child(filename);
-    const uploadTask = storageRef.put(item.file);
-
-    await new Promise((resolve, reject) => {
-      uploadTask.on(
-        "state_changed",
-        (snapshot) => {
-          const fileProgress =
-            (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          const roundedProgress = Math.round(fileProgress);
-          setUploadedItems((prev) =>
-            prev.map((entry) =>
-              entry.id === itemId
-                ? {
-                    ...entry,
-                    progress: roundedProgress,
-                    transferredBytes: snapshot.bytesTransferred,
-                    totalBytes: snapshot.totalBytes,
-                    speedMbps:
-                      snapshot.bytesTransferred > (entry.lastSampleBytes || 0)
-                        ? (snapshot.bytesTransferred - (entry.lastSampleBytes || 0)) /
-                          (1024 * 1024) /
-                          Math.max((Date.now() - (entry.lastSampleTime || Date.now())) / 1000, 0.15)
-                        : entry.speedMbps || 0,
-                    lastSampleBytes: snapshot.bytesTransferred,
-                    lastSampleTime: Date.now(),
-                  }
-                : entry
-            )
-          );
-        },
-        (error) => {
-          console.log(error);
-          setUploadedItems((prev) =>
-            prev.map((entry) =>
-              entry.id === itemId ? { ...entry, status: "error" } : entry
-            )
-          );
-          reject(error);
-        },
-        async () => {
-          const downloadURL = await storageRef.getDownloadURL();
-
-          try {
-            if (resolvedTagId) {
-              await db
-                .collection("tags")
-                .doc(resolvedTagId)
-                .collection("files")
-                .doc(filename)
-                .set({
-                  uploadedBy: user,
-                  uploadedByUid: uid,
-                  uploadedAt: new Date(),
-                });
-              await db
-                .collection("tags")
-                .doc(resolvedTagId)
-                .update({
-                  lastActivityAt: firebase.firestore.FieldValue.serverTimestamp(),
-                });
-              setMyTags((tags) =>
-                tags.map((tag) =>
-                  (typeof tag === "string" ? tag : tag.name) === tagname
-                    ? { ...(typeof tag === "string" ? { name: tag } : tag), lastActivityAt: new Date() }
-                    : tag
-                )
-              );
-
-              queueThumbnailGeneration({
-                selectedFile: item.file,
-                filename,
-                tagId: resolvedTagId,
-                itemId,
-              });
-            }
-
-            setUploadedItems((prev) =>
-              prev.map((entry) =>
-                entry.id === itemId
-                  ? {
-                      ...entry,
-                      url: downloadURL,
-                      progress: 100,
-                      status: "done",
-                      transferredBytes: entry.totalBytes || entry.transferredBytes,
-                      speedMbps: 0,
-                    }
-                  : entry
-              )
-            );
-          } catch (err) {
-            console.log("Error storing file metadata:", err);
-            setUploadedItems((prev) =>
-              prev.map((entry) =>
-                entry.id === itemId
-                  ? {
-                      ...entry,
-                      url: downloadURL,
-                      progress: 100,
-                      status: "done",
-                      transferredBytes: entry.totalBytes || entry.transferredBytes,
-                      speedMbps: 0,
-                    }
-                  : entry
-              )
-            );
-          }
-
-          resolve();
-        }
-      );
-    });
+    await uploadSingleFile(item.file, itemId);
   };
 
-  const requestAccess = () => {
-    if (reqTags || notis || names) {
+  const requestAccess = async () => {
+    try {
+      await api.requestAccess(tagname);
+      setReqModalSuccess(true);
+    } catch (error) {
+      if (error.status === 409) {
+        setRequestModal(true);
+      } else {
+        console.log("Request access error:", error);
+      }
     }
-    const db = app.firestore();
-    db.collection("tags")
-      .where("name", "==", tagname)
-      .get()
-      .then(function (querySnapshot) {
-        querySnapshot.forEach(function (doc) {
-          if (doc.data().requests.includes(uid)) {
-            setRequestModal(true);
-          } else {
-            const db = app.firestore();
-            db.collection("tags")
-              .where("name", "==", tagname)
-              .get()
-              .then(function (querySnapshot) {
-                querySnapshot.forEach(function (doc) {
-                  db.collection("tags")
-                    .doc(doc.id)
-                    .update({
-                      requests: firebase.firestore.FieldValue.arrayUnion(uid),
-                      reqTags: firebase.firestore.FieldValue.arrayUnion(
-                        tagname
-                      ),
-                      reqNames: firebase.firestore.FieldValue.arrayUnion(
-                        user + " is requesting access for " + tagname
-                      ),
-                    });
-                });
-              });
-            setReqModalSuccess(true);
-          }
-        });
-      });
   };
 
   return (

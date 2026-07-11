@@ -1,5 +1,5 @@
 import React from "react";
-import app from "../base";
+import api from "../api.js";
 import { Form, Button, Modal } from "./ui/compat";
 import { Link } from "react-router-dom";
 
@@ -43,13 +43,9 @@ const pickRandom = (items) => items[Math.floor(Math.random() * items.length)];
 
 const Create = () => {
   const [tagname, setTagName] = React.useState("");
-  const [filename] = React.useState([]);
   const [access, setAccess] = React.useState(1);
-  const [users, setUsers] = React.useState([]);
   const [show, setShow] = React.useState(false);
   const [error, setError] = React.useState(false);
-  const [downloadURLs] = React.useState([]);
-  const [date] = React.useState(new Date());
   const [description, setDescription] = React.useState("");
   const [validationErrors, setValidationErrors] = React.useState({});
   const [generatingName, setGeneratingName] = React.useState(false);
@@ -77,13 +73,8 @@ const Create = () => {
   };
 
   const tagExists = async (name) => {
-    const snapshot = await app
-      .firestore()
-      .collection("tags")
-      .where("name", "==", name)
-      .get();
-
-    return !snapshot.empty;
+    const info = await api.getTag(name);
+    return info.exists;
   };
 
   const generateRandomTagName = async () => {
@@ -113,7 +104,7 @@ const Create = () => {
     }
   };
 
-  const onSubmit = (e) => {
+  const onSubmit = async (e) => {
     e.preventDefault();
     const cleanTagName = tagname.trim();
     const errors = validateForm();
@@ -123,42 +114,22 @@ const Create = () => {
     }
     setValidationErrors({});
     setTagName(cleanTagName);
-    
-    app
-      .firestore()
-      .collection("tags")
-      .where("name", "==", cleanTagName)
-      .get()
-      .then(function (querySnapshot) {
-        if (querySnapshot.docs.length >= 1) {
-          setError(true);
-        } else {
-          const db = app.firestore();
-          db.collection("tags").add({
-            name: cleanTagName,
-            filenames: filename,
-            access: access,
-            users: [`${users}`],
-            urls: downloadURLs,
-            date: date,
-            lastActivityAt: date,
-            owner: users,
-            desc: description,
-            requests: [],
-            reqTags: [],
-            reqNames: [],
-          });
-          handleShow();
-        }
-      })
-      .catch(function (error) {
-        console.log("Error getting documents: ", error);
-      });
-  };
 
-  React.useEffect(() => {
-    setUsers(app.auth().currentUser.uid);
-  }, []);
+    try {
+      await api.createTag({
+        name: cleanTagName,
+        access: String(access),
+        desc: description,
+      });
+      handleShow();
+    } catch (error) {
+      if (error.status === 409) {
+        setError(true);
+      } else {
+        setValidationErrors({ tagname: error.message });
+      }
+    }
+  };
 
   const handleClose = () => {
     setShow(false);

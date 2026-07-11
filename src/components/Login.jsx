@@ -1,29 +1,27 @@
 import React, { useCallback, useContext } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import app from "../base.js";
+import api from "../api.js";
 import { AuthContext } from "../Auth.jsx";
 import PublicLanding from "./PublicLanding.jsx";
 
 const Login = () => {
   const navigate = useNavigate();
+  const { currentUser, refreshUser } = useContext(AuthContext);
 
   const handleLogin = useCallback(
     async (event) => {
       event.preventDefault();
       const { email, password } = event.target.elements;
       try {
-        await app
-          .auth()
-          .signInWithEmailAndPassword(email.value, password.value);
+        await api.login(email.value, password.value);
+        await refreshUser();
         navigate("/");
       } catch (error) {
-        alert(error);
+        alert(error.message);
       }
     },
-    [navigate]
+    [navigate, refreshUser]
   );
-
-  const { currentUser } = useContext(AuthContext);
 
   if (currentUser) {
     return <Navigate to="/" replace />;

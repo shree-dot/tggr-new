@@ -1,0 +1,19 @@
+services:
+  tggr:
+    build: .
+    image: tggr:latest
+    container_name: tggr
+    restart: unless-stopped
+    ports:
+      - "3080:3001"
+    volumes:
+      # All app state (SQLite DB + uploaded files) lives here on the NAS.
+      # Change the left side to a path on your ZimaOS data drive, e.g.
+      # /DATA/AppData/tggr
+      - ./data:/data
+    environment:
+      # Optional: pin a JWT secret so logins survive container rebuilds even
+      # if the /data volume moves. If unset, a secret is generated and stored
+      # in /data/.jwt-secret (also persistent).
+      # JWT_SECRET: "change-me-to-a-long-random-string"
+      DATA_DIR: /data

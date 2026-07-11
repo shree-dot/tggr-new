@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import app from "../base";
+import api from "../api.js";
 import {
   Trash2,
   ExternalLink,
@@ -24,7 +24,6 @@ import {
   Spinner,
 } from "./ui/compat";
 import { useNavigate, useParams } from "react-router-dom";
-import firebase from "firebase/compat/app";
 import "../util.css";
 
 const SORT_OPTIONS = {
@@ -47,14 +46,6 @@ const TAG_SORT_OPTIONS = {
 const getTimeValue = (value) => {
   if (!value) {
     return 0;
-  }
-
-  if (typeof value.toDate === "function") {
-    return value.toDate().getTime();
-  }
-
-  if (typeof value.seconds === "number") {
-    return value.seconds * 1000;
   }
 
   const time = new Date(value).getTime();
@@ -86,11 +77,6 @@ const Manage = () => {
   const [ownerUid, setOwnerUid] = useState("");
   const [description, setDescription] = useState("");
   const [uid, setUID] = useState("");
-  const [userDocId, setUserDocId] = useState("");
-  const [notis, setNotis] = useState([]);
-  const [reqTags, setReqTags] = useState([]);
-  const [names, setNames] = useState([]);
-  const [user, setUser] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [empty, setEmpty] = useState("none");
@@ -109,39 +95,22 @@ const Manage = () => {
   const loadFilesRequestIdRef = React.useRef(0);
 
   React.useEffect(() => {
-    const currentUid = app.auth().currentUser.uid;
-    setUID(currentUid);
+    api
+      .me()
+      .then(({ user }) => {
+        setUID(user.uid);
+        setFavoriteTags(user.favoriteTags || []);
+      })
+      .catch((error) => console.log("User load error:", error));
 
-    const db = app.firestore();
-    db.collection("users")
-      .where("uid", "==", currentUid)
-      .get()
-      .then((querySnapshot) => {
-        querySnapshot.forEach((doc) => {
-          setUserDocId(doc.id);
-          setUser(doc.data().name);
-          setFavoriteTags(doc.data().favoriteTags || []);
-        });
-      });
-
-    db.collection("tags")
-      .where("owner", "==", currentUid)
-      .get()
-      .then((querySnapshot) => {
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          setMyTags((tags) => [
-            ...tags,
-            {
-              id: doc.id,
-              name: data.name,
-              date: data.date,
-              createdAt: data.createdAt,
-              lastActivityAt: data.lastActivityAt,
-              updatedAt: data.updatedAt,
-            },
-          ]);
-        });
+    api
+      .myTags()
+      .then(({ tags }) => {
+        setMyTags(tags);
+        setLoading(false);
+      })
+      .catch((error) => {
+        console.log("Tags load error:", error);
         setLoading(false);
       });
   }, []);
@@ -269,184 +238,74 @@ const Manage = () => {
     return data.color;
   };
 
-  const loadFiles = (tag) => {
+  const loadFiles = async (tag) => {
     const requestId = ++loadFilesRequestIdRef.current;
     setFiles([]);
     setLoadingFiles(true);
-    const db = app.firestore();
 
-    app
-      .storage()
-      .ref(`${tag}`)
-      .listAll()
-      .then(async (result) => {
-        if (requestId !== loadFilesRequestIdRef.current) {
-          return;
-        }
+    try {
+      const { files: loaded } = await api.listFiles(tag);
 
-        if (!result.items.length) {
-          setEmpty("block");
-          setnEmpty("none");
-          setLoadingFiles(false);
-          return;
-        }
+      if (requestId !== loadFilesRequestIdRef.current) {
+        return;
+      }
 
-        setnEmpty("block");
+      if (!loaded.length) {
+        setEmpty("block");
+        setnEmpty("none");
+        setLoadingFiles(false);
+        return;
+      }
 
-        let fileMetaMap = new Map();
-        try {
-          const tagDocs = await db
-            .collection("tags")
-            .where("name", "==", tag)
-            .limit(1)
-            .get();
-
-          if (!tagDocs.empty) {
-            const tagId = tagDocs.docs[0].id;
-            const fileMetaSnapshot = await db
-              .collection("tags")
-              .doc(tagId)
-              .collection("files")
-              .get();
-
-            fileMetaMap = new Map(
-              fileMetaSnapshot.docs.map((doc) => [doc.id, doc.data()])
-            );
-          }
-        } catch (err) {
-          console.log("Error fetching file metadata map:", err);
-        }
-
-        const chunkSize = 12;
-        let hasRenderedFirstChunk = false;
-
-        for (let start = 0; start < result.items.length; start += chunkSize) {
-          if (requestId !== loadFilesRequestIdRef.current) {
-            return;
-          }
-
-          const chunk = result.items.slice(start, start + chunkSize);
-          const batchItems = await Promise.all(
-            chunk.map(async (itemRef) => {
-              const [downloadURL, metadata] = await Promise.all([
-                app.storage().ref(itemRef.fullPath).getDownloadURL(),
-                app.storage().ref(itemRef.fullPath).getMetadata(),
-              ]);
-
-              const fileMeta = fileMetaMap.get(itemRef.name) || {};
-
-              return {
-                name: itemRef.name,
-                fullPath: itemRef.fullPath,
-                url: downloadURL,
-                thumbnailURL: fileMeta.thumbnailURL || "",
-                timeCreated: metadata.timeCreated,
-                size: metadata.size,
-                uploadedBy: fileMeta.uploadedBy || "Unknown",
-              };
-            })
-          );
-
-          if (requestId !== loadFilesRequestIdRef.current) {
-            return;
-          }
-
-          setFiles((prev) => [...prev, ...batchItems]);
-
-          if (!hasRenderedFirstChunk) {
-            hasRenderedFirstChunk = true;
-            setLoadingFiles(false);
-          }
-        }
-
-        if (!hasRenderedFirstChunk) {
-          setLoadingFiles(false);
-        }
-      })
-      .catch(() => {
-        if (requestId === loadFilesRequestIdRef.current) {
-          setLoadingFiles(false);
-        }
-      });
+      setnEmpty("block");
+      setFiles(loaded);
+      setLoadingFiles(false);
+    } catch (error) {
+      console.log("Error loading files:", error);
+      if (requestId === loadFilesRequestIdRef.current) {
+        setLoadingFiles(false);
+      }
+    }
   };
 
-  const getOwner = (name) => {
-    const db = app.firestore();
-    db.collection("tags")
-      .where("name", "==", name)
-      .get()
-      .then((querySnapshot) => {
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          setDescription(data.desc || "");
-          setOwnerUid(data.owner || "");
-
-          db.collection("users")
-            .where("uid", "==", data.owner)
-            .get()
-            .then((usersSnapshot) => {
-              usersSnapshot.forEach((userDoc) => {
-                if (uid === userDoc.data().uid) {
-                  setOwner(`${userDoc.data().name} ( You )`);
-                } else {
-                  setOwner(userDoc.data().name);
-                }
-              });
-            });
-        });
-      });
-  };
-
-  const resolveTag = (name) => {
+  const resolveTag = async (name) => {
     if (!name) {
       return;
     }
 
     resetTagState();
 
-    app
-      .firestore()
-      .collection("tags")
-      .where("name", "==", name)
-      .get()
-      .then((querySnapshot) => {
-        setPending("none");
+    try {
+      const info = await api.getTag(name);
+      setPending("none");
 
-        if (querySnapshot.empty) {
-          setNones("block");
-          setNonesx("none");
-          setMones("none");
-          setShow("none");
-          return;
-        }
-
-        let denied = false;
-        querySnapshot.forEach((doc) => {
-          if (doc.data().access === "2" && !doc.data().users.includes(uid)) {
-            denied = true;
-            setNames(doc.data().reqNames || []);
-            setNotis(doc.data().requests || []);
-            setReqTags(doc.data().reqTags || []);
-          }
-        });
-
-        if (denied) {
-          setNonesx("block");
-          setMones("none");
-          setShow("none");
-          return;
-        }
-
-        setMones("block");
-        setNones("none");
+      if (!info.exists) {
+        setNones("block");
         setNonesx("none");
-        setShow("block");
-        getOwner(name);
-        loadFiles(name);
-      })
-      .catch(() => {
-        setPending("none");
-      });
+        setMones("none");
+        setShow("none");
+        return;
+      }
+
+      if (!info.allowed) {
+        setNonesx("block");
+        setMones("none");
+        setShow("none");
+        return;
+      }
+
+      setMones("block");
+      setNones("none");
+      setNonesx("none");
+      setShow("block");
+      setDescription(info.desc || "");
+      setOwnerUid(info.owner.uid);
+      setOwner(info.isOwner ? `${info.owner.name} ( You )` : info.owner.name);
+      loadFiles(name);
+    } catch (error) {
+      console.log("Error resolving tag:", error);
+      setPending("none");
+    }
   };
 
   const checkBase = () => {
@@ -474,10 +333,6 @@ const Manage = () => {
   };
 
   const toggleFavorite = async (name) => {
-    if (!userDocId) {
-      return;
-    }
-
     const isFav = favoriteTags.includes(name);
     const nextFavs = isFav
       ? favoriteTags.filter((tag) => tag !== name)
@@ -485,25 +340,11 @@ const Manage = () => {
     setFavoriteTags(nextFavs);
 
     try {
-      await app
-        .firestore()
-        .collection("users")
-        .doc(userDocId)
-        .update({
-          favoriteTags: isFav
-            ? firebase.firestore.FieldValue.arrayRemove(name)
-            : firebase.firestore.FieldValue.arrayUnion(name),
-        });
+      await api.setFavorite(name, !isFav);
     } catch (error) {
       setFavoriteTags(favoriteTags);
       console.log("Favorite update error:", error);
     }
-  };
-
-  const deleteStorageFolder = async (folderRef) => {
-    const result = await folderRef.listAll();
-    await Promise.all(result.items.map((itemRef) => itemRef.delete()));
-    await Promise.all(result.prefixes.map((prefixRef) => deleteStorageFolder(prefixRef)));
   };
 
   const openDeleteTagModal = (name) => {
@@ -527,44 +368,7 @@ const Manage = () => {
     setDeletingTag(true);
 
     try {
-      const db = app.firestore();
-      const tagSnapshot = deleteTagCandidate.id
-        ? await db.collection("tags").doc(deleteTagCandidate.id).get()
-        : null;
-
-      let tagDoc = tagSnapshot?.exists ? tagSnapshot : null;
-
-      if (!tagDoc) {
-        const lookup = await db
-          .collection("tags")
-          .where("name", "==", name)
-          .where("owner", "==", uid)
-          .limit(1)
-          .get();
-
-        if (!lookup.empty) {
-          tagDoc = lookup.docs[0];
-        }
-      }
-
-      await deleteStorageFolder(app.storage().ref(name));
-
-      if (tagDoc) {
-        const filesSnapshot = await tagDoc.ref.collection("files").get();
-        const batch = db.batch();
-        filesSnapshot.forEach((fileDoc) => batch.delete(fileDoc.ref));
-        batch.delete(tagDoc.ref);
-        await batch.commit();
-      }
-
-      if (userDocId) {
-        await db
-          .collection("users")
-          .doc(userDocId)
-          .update({
-            favoriteTags: firebase.firestore.FieldValue.arrayRemove(name),
-          });
-      }
+      await api.deleteTag(name);
 
       setMyTags((tags) =>
         tags.filter((tag) => (typeof tag === "string" ? tag : tag.name) !== name)
@@ -587,31 +391,17 @@ const Manage = () => {
     }
   };
 
-  const requestAccess = () => {
-    const db = app.firestore();
-    db.collection("tags")
-      .where("name", "==", tagname)
-      .get()
-      .then((querySnapshot) => {
-        querySnapshot.forEach((doc) => {
-          if (doc.data().requests.includes(uid)) {
-            setRequestModal(true);
-          } else {
-            db.collection("tags")
-              .doc(doc.id)
-              .update({
-                requests: firebase.firestore.FieldValue.arrayUnion(uid),
-                reqTags: firebase.firestore.FieldValue.arrayUnion(tagname),
-                reqNames: firebase.firestore.FieldValue.arrayUnion(
-                  `${user} is requesting access for ${tagname}`
-                ),
-              })
-              .then(() => {
-                setReqModalSuccess(true);
-              });
-          }
-        });
-      });
+  const requestAccess = async () => {
+    try {
+      await api.requestAccess(tagname);
+      setReqModalSuccess(true);
+    } catch (error) {
+      if (error.status === 409) {
+        setRequestModal(true);
+      } else {
+        console.log("Request access error:", error);
+      }
+    }
   };
 
   const handleClose = () => {
@@ -625,7 +415,7 @@ const Manage = () => {
     }
 
     try {
-      await app.storage().ref(item.fullPath).delete();
+      await api.deleteFile(tagname, item.name);
       setFiles((prev) => prev.filter((entry) => entry.fullPath !== item.fullPath));
     } catch (error) {
       console.log("Delete error:", error);

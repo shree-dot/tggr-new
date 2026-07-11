@@ -1,0 +1,21 @@
+{
+  "name": "tggr-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.4.1",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.2"
+  }
+}

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import app from "./base.js";
+import React, { useCallback, useEffect, useState } from "react";
+import api from "./api.js";
 import { Spinner } from "./components/ui/compat";
 export const AuthContext = React.createContext();
 
@@ -7,13 +7,29 @@ export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [pending, setPending] = useState(true);
 
-  useEffect(() => {
-    const unsubscribe = app.auth().onAuthStateChanged((user) => {
+  const refreshUser = useCallback(async () => {
+    try {
+      const { user } = await api.me();
       setCurrentUser(user);
+      return user;
+    } catch {
+      setCurrentUser(null);
+      return null;
+    } finally {
       setPending(false);
-    });
+    }
+  }, []);
 
-    return unsubscribe;
+  useEffect(() => {
+    refreshUser();
+  }, [refreshUser]);
+
+  const signOut = useCallback(async () => {
+    try {
+      await api.logout();
+    } finally {
+      setCurrentUser(null);
+    }
   }, []);
 
   if (pending) {
@@ -40,6 +56,8 @@ export const AuthProvider = ({ children }) => {
     <AuthContext.Provider
       value={{
         currentUser,
+        refreshUser,
+        signOut,
       }}
     >
       {children}

@@ -1,17 +1,15 @@
-import React from "react";
-import app from "../base";
+import React, { useContext } from "react";
+import api from "../api.js";
+import { AuthContext } from "../Auth.jsx";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import prof from "../svg/prof.png";
-import firebase from "firebase/compat/app";
 import { Menu, X, Bell, ChevronDown, LogOut } from "lucide-react";
 import { Button } from "./ui/compat";
 
 const Header = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [user, setUser] = React.useState("");
-  const [reqTags, setReqTags] = React.useState([]);
-  const [reqNames, setReqNames] = React.useState([]);
+  const { currentUser, signOut } = useContext(AuthContext);
   const [requests, setRequests] = React.useState([]);
   const [openNotifications, setOpenNotifications] = React.useState(false);
   const [openProfileMenu, setOpenProfileMenu] = React.useState(false);
@@ -19,37 +17,13 @@ const Header = () => {
   const notiWrapRef = React.useRef(null);
   const profileWrapRef = React.useRef(null);
 
+  const user = currentUser?.name || "";
+
   React.useEffect(() => {
-    const currentUser = app.auth().currentUser;
-    if (!currentUser?.uid) {
-      return;
-    }
-
-    const uid = currentUser.uid;
-    const db = app.firestore();
-    db.collection("tags")
-      .where("owner", "==", uid)
-      .get()
-      .then(function (querySnapshot) {
-        const nextReqTags = [];
-        const nextReqNames = [];
-        const nextRequests = [];
-
-        querySnapshot.forEach(function (doc) {
-          const data = doc.data() || {};
-          const reqTags = Array.isArray(data.reqTags) ? data.reqTags : [];
-          const reqNames = Array.isArray(data.reqNames) ? data.reqNames : [];
-          const requests = Array.isArray(data.requests) ? data.requests : [];
-
-          nextReqTags.push(...reqTags);
-          nextReqNames.push(...reqNames);
-          nextRequests.push(...requests);
-        });
-
-        setReqTags(nextReqTags);
-        setReqNames(nextReqNames);
-        setRequests(nextRequests);
-      });
+    api
+      .getRequests()
+      .then(({ requests }) => setRequests(requests))
+      .catch((error) => console.log("Requests load error:", error));
   }, []);
 
   React.useEffect(() => {
@@ -73,8 +47,8 @@ const Header = () => {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
-  const handleSignOut = () => {
-    app.auth().signOut();
+  const handleSignOut = async () => {
+    await signOut();
     navigate("/");
   };
 
@@ -90,87 +64,17 @@ const Header = () => {
 
   const navClass = (stateClass) => `header-link ${stateClass}`;
 
-  React.useEffect(() => {
-    const currentUser = app.auth().currentUser;
-    if (!currentUser?.uid) {
-      return;
+  const resolveRequest = async (request, action) => {
+    try {
+      await api.resolveRequest(request.id, action);
+      setRequests((prev) => prev.filter((entry) => entry.id !== request.id));
+    } catch (error) {
+      console.log("Request resolve error:", error);
     }
-
-    const uid = currentUser.uid;
-    const db = app.firestore();
-    db.collection("users")
-      .where("uid", "==", uid)
-      .get()
-      .then(function (querySnapshot) {
-        querySnapshot.forEach(function (doc) {
-          setUser(doc.data().name);
-        });
-      });
-  }, []);
-
-  const acceptReq = (index) => {
-    if (!reqNames[index] || !requests[index]) {
-      return;
-    }
-    const db = app.firestore();
-    let tagString = reqNames[index];
-    let tag = tagString.split(" ").splice(-1);
-    console.log(tag[0]);
-    db.collection("tags")
-      .where("name", "==", tag[0])
-      .get()
-      .then(function (querySnapshot) {
-        querySnapshot.forEach(function (doc) {
-          const ref = db.collection("tags").doc(doc.id);
-          ref.update({
-            users: firebase.firestore.FieldValue.arrayUnion(requests[index]),
-          });
-          ref.update({
-            requests: firebase.firestore.FieldValue.arrayRemove(
-              requests[index]
-            ),
-            reqNames: firebase.firestore.FieldValue.arrayRemove(
-              reqNames[index]
-            ),
-          });
-        });
-      });
-
-    setReqNames((prev) => prev.filter((_, i) => i !== index));
-    setRequests((prev) => prev.filter((_, i) => i !== index));
-    setReqTags((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const rejectReq = (index) => {
-    if (!reqNames[index] || !requests[index]) {
-      return;
-    }
-
-    const db = app.firestore();
-    let tagString = reqNames[index];
-    let tag = tagString.split(" ").splice(-1);
-    console.log(tag[0]);
-    db.collection("tags")
-      .where("name", "==", tag[0])
-      .get()
-      .then(function (querySnapshot) {
-        querySnapshot.forEach(function (doc) {
-          const ref = db.collection("tags").doc(doc.id);
-          ref.update({
-            requests: firebase.firestore.FieldValue.arrayRemove(
-              requests[index]
-            ),
-            reqNames: firebase.firestore.FieldValue.arrayRemove(
-              reqNames[index]
-            ),
-          });
-        });
-      });
-
-    setReqNames((prev) => prev.filter((_, i) => i !== index));
-    setRequests((prev) => prev.filter((_, i) => i !== index));
-    setReqTags((prev) => prev.filter((_, i) => i !== index));
-  };
+  const acceptReq = (request) => resolveRequest(request, "accept");
+  const rejectReq = (request) => resolveRequest(request, "reject");
 
   return (
     <div className="app-header-shell mb-5">
@@ -216,24 +120,24 @@ const Header = () => {
             >
               <Bell size={18} />
               <span className="app-noti-btn-label">Notifications</span>
-              {reqNames.length > 0 && <span className="app-noti-dot" />}
+              {requests.length > 0 && <span className="app-noti-dot" />}
             </button>
 
             {openNotifications && (
               <div id="notidd" className="app-noti-menu">
-                {reqNames.length === 0 && (
+                {requests.length === 0 && (
                   <div id="dditem" className="app-noti-item">
                     <p style={{ margin: 0, fontWeight: "bold", color: "var(--text)" }}>No new notifications!</p>
                   </div>
                 )}
-                {reqNames.map((name, index) => (
-                  <div key={index} id={index + "sup"} className="app-noti-item" style={{ textAlign: "center", color: "var(--text)" }}>
-                    <span style={{ lineHeight: "1.4" }}>{name}</span>
+                {requests.map((request, index) => (
+                  <div key={request.id} id={index + "sup"} className="app-noti-item" style={{ textAlign: "center", color: "var(--text)" }}>
+                    <span style={{ lineHeight: "1.4" }}>{request.message}</span>
                     <div className="mt-3" style={{ display: "flex", justifyContent: "center", gap: "0.75rem" }}>
-                      <Button size="sm" onClick={() => acceptReq(index)}>
+                      <Button size="sm" onClick={() => acceptReq(request)}>
                         Accept
                       </Button>
-                      <Button size="sm" variant="danger" onClick={() => rejectReq(index)}>
+                      <Button size="sm" variant="danger" onClick={() => rejectReq(request)}>
                         Reject
                       </Button>
                     </div>

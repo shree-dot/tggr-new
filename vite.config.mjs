@@ -4,6 +4,12 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  server: {
+    proxy: {
+      "/api": "http://localhost:3001",
+      "/files": "http://localhost:3001",
+    },
+  },
   esbuild: {
     loader: "jsx",
     include: /src\/.*\.[jt]sx?$/,
