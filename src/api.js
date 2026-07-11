@@ -27,7 +27,10 @@ const request = async (path, options = {}) => {
 
 const api = {
   // --- auth ---
+  getConfig: () => request("/api/config"),
   me: () => request("/api/auth/me"),
+  googleLogin: (credential) =>
+    request("/api/auth/google", { method: "POST", body: { credential } }),
   login: (email, password) =>
     request("/api/auth/login", { method: "POST", body: { email, password } }),
   signup: (name, email, password) =>

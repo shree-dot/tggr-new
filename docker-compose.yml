@@ -17,3 +17,10 @@ services:
       # in /data/.jwt-secret (also persistent).
       # JWT_SECRET: "change-me-to-a-long-random-string"
       DATA_DIR: /data
+      # Google Sign-In: OAuth client id from console.cloud.google.com
+      # (APIs & Services -> Credentials -> OAuth client ID -> Web application).
+      # Leave unset to hide the Google button.
+      GOOGLE_CLIENT_ID: "298771617646-imq33u0o0rhh7b9ij5asqf8civcdrbja.apps.googleusercontent.com"
+      # Set to "false" once everyone has an account to block new registrations
+      # (imported-account claiming still works).
+      ALLOW_SIGNUP: "true"

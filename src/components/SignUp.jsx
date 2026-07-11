@@ -23,7 +23,26 @@ const SignUp = () => {
     [navigate, refreshUser]
   );
 
-  return <PublicLanding mode="signup" onSubmit={handleSignUp} />;
+  const handleGoogleCredential = useCallback(
+    async (credential) => {
+      try {
+        await api.googleLogin(credential);
+        await refreshUser();
+        navigate("/");
+      } catch (error) {
+        alert(error.message);
+      }
+    },
+    [navigate, refreshUser]
+  );
+
+  return (
+    <PublicLanding
+      mode="signup"
+      onSubmit={handleSignUp}
+      onGoogleCredential={handleGoogleCredential}
+    />
+  );
 };
 
 export default SignUp;

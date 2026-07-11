@@ -23,11 +23,30 @@ const Login = () => {
     [navigate, refreshUser]
   );
 
+  const handleGoogleCredential = useCallback(
+    async (credential) => {
+      try {
+        await api.googleLogin(credential);
+        await refreshUser();
+        navigate("/");
+      } catch (error) {
+        alert(error.message);
+      }
+    },
+    [navigate, refreshUser]
+  );
+
   if (currentUser) {
     return <Navigate to="/" replace />;
   }
 
-  return <PublicLanding mode="login" onSubmit={handleLogin} />;
+  return (
+    <PublicLanding
+      mode="login"
+      onSubmit={handleLogin}
+      onGoogleCredential={handleGoogleCredential}
+    />
+  );
 };
 
 export default Login;

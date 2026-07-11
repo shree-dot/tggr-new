@@ -5,8 +5,21 @@
 
 # dependencies
 /node_modules
+/server/node_modules
 /.pnp
 .pnp.js
+
+# app data (SQLite DB + uploaded files) — never commit
+/data
+/server/data
+*.db
+*.db-wal
+*.db-shm
+.jwt-secret
+
+# secrets
+serviceAccountKey.json
+*firebase-adminsdk*.json
 
 # testing
 /coverage

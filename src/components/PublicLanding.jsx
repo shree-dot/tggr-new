@@ -1,5 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import api from "../api.js";
 import {
   ArrowRight,
   File,
@@ -34,8 +35,64 @@ const workflowCards = [
   },
 ];
 
-const PublicLanding = ({ mode, onSubmit }) => {
+const GSI_SCRIPT_URL = "https://accounts.google.com/gsi/client";
+
+const PublicLanding = ({ mode, onSubmit, onGoogleCredential }) => {
   const isSignup = mode === "signup";
+  const googleButtonRef = React.useRef(null);
+  const [googleReady, setGoogleReady] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!onGoogleCredential) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const renderGoogleButton = (clientId) => {
+      if (cancelled || !window.google?.accounts?.id || !googleButtonRef.current) {
+        return;
+      }
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: (response) => onGoogleCredential(response.credential),
+      });
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: "outline",
+        size: "large",
+        width: 280,
+        text: isSignup ? "signup_with" : "signin_with",
+      });
+      setGoogleReady(true);
+    };
+
+    api
+      .getConfig()
+      .then(({ googleClientId }) => {
+        if (!googleClientId || cancelled) {
+          return;
+        }
+        if (window.google?.accounts?.id) {
+          renderGoogleButton(googleClientId);
+          return;
+        }
+        let script = document.querySelector(`script[src="${GSI_SCRIPT_URL}"]`);
+        if (!script) {
+          script = document.createElement("script");
+          script.src = GSI_SCRIPT_URL;
+          script.async = true;
+          document.head.appendChild(script);
+        }
+        script.addEventListener("load", () => renderGoogleButton(googleClientId));
+      })
+      .catch(() => {
+        // Google Sign-In stays hidden; password form still works.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [onGoogleCredential, isSignup]);
   const scrollToAuth = (event) => {
     event.preventDefault();
     document.getElementById("public-auth")?.scrollIntoView({
@@ -89,6 +146,28 @@ const PublicLanding = ({ mode, onSubmit }) => {
           </div>
           <h2>{isSignup ? "Create Account" : "Welcome Back"}</h2>
           <p>{isSignup ? "Start creating tags and sharing files in minutes." : "Log in to manage your tags, uploads, and requests."}</p>
+
+          <div
+            ref={googleButtonRef}
+            style={{
+              display: googleReady ? "flex" : "none",
+              justifyContent: "center",
+              marginBottom: "0.9rem",
+            }}
+          />
+          {googleReady && (
+            <div
+              style={{
+                textAlign: "center",
+                color: "var(--muted, #888)",
+                fontSize: "12px",
+                fontWeight: 600,
+                margin: "0 0 0.9rem",
+              }}
+            >
+              or use email
+            </div>
+          )}
 
           <Form onSubmit={onSubmit}>
             {isSignup && (
