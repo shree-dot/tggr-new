@@ -25,6 +25,119 @@ const request = async (path, options = {}) => {
   return data;
 };
 
+// Files larger than this are sent in chunks so no single request exceeds the
+// Cloudflare tunnel's 100MB body limit. Smaller files use one plain request.
+const CHUNK_THRESHOLD = 80 * 1024 * 1024;
+const CHUNK_SIZE = 8 * 1024 * 1024;
+
+const randomUploadId = () => {
+  try {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    // Fallback for non-secure contexts where crypto may be unavailable.
+    return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`.padEnd(24, "0");
+  }
+};
+
+const uploadSingle = (tag, file, onProgress) =>
+  new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/tags/${encodeURIComponent(tag)}/files`);
+    xhr.withCredentials = true;
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress({ bytesTransferred: event.loaded, totalBytes: event.total });
+      }
+    };
+    xhr.onload = () => {
+      let data = null;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        // ignore
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data);
+      } else {
+        reject(new Error(data?.error || `Upload failed (${xhr.status})`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Upload failed (network error)"));
+
+    const form = new FormData();
+    form.append("file", file);
+    xhr.send(form);
+  });
+
+const sendChunk = (tag, uploadId, index, blob, onChunkProgress) =>
+  new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/tags/${encodeURIComponent(tag)}/uploads/${uploadId}/${index}`);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onChunkProgress) {
+        onChunkProgress(event.loaded);
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        let data = null;
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch {
+          // ignore
+        }
+        reject(new Error(data?.error || `Chunk ${index} failed (${xhr.status})`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Chunk upload failed (network error)"));
+    xhr.send(blob);
+  });
+
+const uploadChunked = async (tag, file, onProgress) => {
+  const uploadId = randomUploadId();
+  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+  let baseBytes = 0;
+
+  for (let index = 0; index < totalChunks; index++) {
+    const start = index * CHUNK_SIZE;
+    const blob = file.slice(start, Math.min(start + CHUNK_SIZE, file.size));
+
+    // One retry per chunk to ride out transient network blips.
+    let attempt = 0;
+    for (;;) {
+      try {
+        await sendChunk(tag, uploadId, index, blob, (loaded) => {
+          if (onProgress) {
+            onProgress({ bytesTransferred: baseBytes + loaded, totalBytes: file.size });
+          }
+        });
+        break;
+      } catch (err) {
+        if (attempt >= 1) throw err;
+        attempt += 1;
+      }
+    }
+
+    baseBytes += blob.size;
+    if (onProgress) {
+      onProgress({ bytesTransferred: baseBytes, totalBytes: file.size });
+    }
+  }
+
+  return request(`/api/tags/${encodeURIComponent(tag)}/uploads/${uploadId}/complete`, {
+    method: "POST",
+    body: { filename: file.name, totalChunks },
+  });
+};
+
 const api = {
   // --- auth ---
   getConfig: () => request("/api/config"),
@@ -61,36 +174,11 @@ const api = {
     ),
 
   // Upload with progress via XHR (fetch has no upload progress events).
+  // Large files are chunked so each request stays under the tunnel's 100MB cap.
   uploadFile: (tag, file, { onProgress } = {}) =>
-    new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", `/api/tags/${encodeURIComponent(tag)}/files`);
-      xhr.withCredentials = true;
-
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable && onProgress) {
-          onProgress({ bytesTransferred: event.loaded, totalBytes: event.total });
-        }
-      };
-      xhr.onload = () => {
-        let data = null;
-        try {
-          data = JSON.parse(xhr.responseText);
-        } catch {
-          // ignore
-        }
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(data);
-        } else {
-          reject(new Error(data?.error || `Upload failed (${xhr.status})`));
-        }
-      };
-      xhr.onerror = () => reject(new Error("Upload failed (network error)"));
-
-      const form = new FormData();
-      form.append("file", file);
-      xhr.send(form);
-    }),
+    file.size > CHUNK_THRESHOLD
+      ? uploadChunked(tag, file, onProgress)
+      : uploadSingle(tag, file, onProgress),
 
   uploadThumbnail: async (tag, filename, blob) => {
     const res = await fetch(

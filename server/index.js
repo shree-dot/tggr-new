@@ -470,6 +470,119 @@ app.post("/api/tags/:name/files", requireAuth, upload.single("file"), (req, res)
   res.json({ file: fileRowToJson(tag, row) });
 });
 
+/* ---------- chunked uploads (files larger than the tunnel's 100MB cap) ---------- */
+
+const UPLOADS_TMP = path.join(DATA_DIR, ".uploads");
+const isValidUploadId = (id) => /^[a-f0-9]{16,64}$/i.test(id);
+
+// Receive one chunk, streamed straight to a temp file (no full-body buffering).
+app.post("/api/tags/:name/uploads/:uploadId/:index", requireAuth, (req, res) => {
+  const tag = loadTagWithAccess(req, res);
+  if (!tag) return;
+
+  const { uploadId, index } = req.params;
+  const idx = Number(index);
+  if (!isValidUploadId(uploadId) || !Number.isInteger(idx) || idx < 0 || idx > 200000) {
+    return res.status(400).json({ error: "Invalid chunk request" });
+  }
+
+  const dir = path.join(UPLOADS_TMP, uploadId);
+  fs.mkdirSync(dir, { recursive: true });
+  const out = fs.createWriteStream(path.join(dir, String(idx)));
+
+  let failed = false;
+  const fail = () => {
+    if (failed) return;
+    failed = true;
+    out.destroy();
+    res.status(500).json({ error: "Chunk write failed" });
+  };
+
+  req.on("error", fail);
+  out.on("error", fail);
+  out.on("finish", () => {
+    if (!failed) res.json({ ok: true });
+  });
+  req.pipe(out);
+});
+
+// Assemble the received chunks into the final file, in order.
+app.post("/api/tags/:name/uploads/:uploadId/complete", requireAuth, (req, res) => {
+  const tag = loadTagWithAccess(req, res);
+  if (!tag) return;
+
+  const { uploadId } = req.params;
+  const { filename, totalChunks } = req.body || {};
+  const total = Number(totalChunks);
+
+  if (!isValidUploadId(uploadId)) {
+    return res.status(400).json({ error: "Invalid upload id" });
+  }
+  if (!isSafeFilename(filename)) {
+    return res.status(400).json({ error: "Invalid filename" });
+  }
+  if (!Number.isInteger(total) || total < 1 || total > 200000) {
+    return res.status(400).json({ error: "Invalid chunk count" });
+  }
+
+  const dir = path.join(UPLOADS_TMP, uploadId);
+  for (let i = 0; i < total; i++) {
+    if (!fs.existsSync(path.join(dir, String(i)))) {
+      return res.status(400).json({ error: `Missing chunk ${i}, please retry the upload` });
+    }
+  }
+
+  fs.mkdirSync(tagDir(tag.name), { recursive: true });
+  const finalPath = path.join(tagDir(tag.name), filename);
+  const out = fs.createWriteStream(finalPath);
+
+  let failed = false;
+  const fail = (err) => {
+    if (failed) return;
+    failed = true;
+    console.log("Assemble error:", err);
+    out.destroy();
+    fs.rmSync(finalPath, { force: true });
+    res.status(500).json({ error: "Failed to assemble file" });
+  };
+
+  out.on("error", fail);
+  out.on("finish", () => {
+    if (failed) return;
+    const size = fs.statSync(finalPath).size;
+    db.prepare(
+      `INSERT INTO files (tag_id, filename, size, uploaded_by, uploaded_by_uid, has_thumbnail)
+       VALUES (?, ?, ?, ?, ?, 0)
+       ON CONFLICT(tag_id, filename) DO UPDATE SET
+         size = excluded.size,
+         uploaded_by = excluded.uploaded_by,
+         uploaded_by_uid = excluded.uploaded_by_uid,
+         has_thumbnail = 0,
+         uploaded_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')`
+    ).run(tag.id, filename, size, req.user.name, req.user.uid);
+    touchActivity.run(tag.id);
+    fs.rmSync(dir, { recursive: true, force: true });
+
+    const row = db
+      .prepare("SELECT * FROM files WHERE tag_id = ? AND filename = ?")
+      .get(tag.id, filename);
+    res.json({ file: fileRowToJson(tag, row) });
+  });
+
+  const appendChunk = (i) => {
+    if (failed) return;
+    if (i >= total) {
+      out.end();
+      return;
+    }
+    const inp = fs.createReadStream(path.join(dir, String(i)));
+    inp.on("error", fail);
+    inp.on("end", () => appendChunk(i + 1));
+    inp.pipe(out, { end: false });
+  };
+  appendChunk(0);
+});
+
 app.post(
   "/api/tags/:name/files/:filename/thumbnail",
   requireAuth,
@@ -557,6 +670,22 @@ if (fs.existsSync(DIST_DIR)) {
     }
     res.sendFile(path.join(DIST_DIR, "index.html"));
   });
+}
+
+// Sweep abandoned chunk-upload temp dirs (older than 24h) on startup.
+try {
+  if (fs.existsSync(UPLOADS_TMP)) {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const entry of fs.readdirSync(UPLOADS_TMP, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const p = path.join(UPLOADS_TMP, entry.name);
+      if (fs.statSync(p).mtimeMs < cutoff) {
+        fs.rmSync(p, { recursive: true, force: true });
+      }
+    }
+  }
+} catch (err) {
+  console.log("Upload temp cleanup skipped:", err);
 }
 
 app.listen(PORT, "0.0.0.0", () => {
