@@ -476,7 +476,8 @@ const UPLOADS_TMP = path.join(DATA_DIR, ".uploads");
 const isValidUploadId = (id) => /^[a-f0-9]{16,64}$/i.test(id);
 
 // Receive one chunk, streamed straight to a temp file (no full-body buffering).
-app.post("/api/tags/:name/uploads/:uploadId/:index", requireAuth, (req, res) => {
+// :index is constrained to digits so it never captures the "complete" route.
+app.post("/api/tags/:name/uploads/:uploadId/:index(\\d+)", requireAuth, (req, res) => {
   const tag = loadTagWithAccess(req, res);
   if (!tag) return;
 
