@@ -36,10 +36,11 @@ const workflowCards = [
 
 const GSI_SCRIPT_URL = "https://accounts.google.com/gsi/client";
 
-// Vector ring backdrop replacing the old raster hero/footer images: crisp
-// concentric arcs in theme greens that parallax toward the cursor, but only
-// while the section is hovered (they ease back to rest on leave).
-const RingsBackdrop = ({ anchor = "right" }) => {
+// "Scatter -> order" flow field: frayed light-trails (loose files) that
+// converge into a neatly indexed rack — an abstract of what tggr does.
+// Static at rest; on hover the chaotic side drifts toward the cursor with
+// depth parallax while the ordered side stays almost still.
+const FlowBackdrop = ({ anchor = "right" }) => {
   const wrapRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -75,43 +76,174 @@ const RingsBackdrop = ({ anchor = "right" }) => {
     };
   }, []);
 
-  const isRight = anchor === "right";
-  const cx = isRight ? 1120 : 600;
-  const cy = isRight ? 190 : 760;
-  const radii = [150, 265, 395, 540, 700];
+  const isHero = anchor === "right";
+
+  // Hand-tuned stream bundles. Each stream starts scattered on the left and
+  // docks at an evenly-spaced slot on the right (hero) or passes through a
+  // central "index" and exits perfectly parallel (band).
+  const heroStreams = [
+    { sy: 520, wob1: -70, wob2: 30, w: 1.4, o: 0.7 },
+    { sy: 210, wob1: 90, wob2: -40, w: 1.0, o: 0.4 },
+    { sy: 620, wob1: -110, wob2: 50, w: 1.2, o: 0.55 },
+    { sy: 340, wob1: 60, wob2: -25, w: 1.8, o: 0.95 },
+    { sy: 260, wob1: 80, wob2: -50, w: 1.3, o: 0.65 },
+    { sy: 580, wob1: -90, wob2: 20, w: 1.1, o: 0.45 },
+  ];
+  const bandStreams = [
+    { sy: 96, w: 1.2, o: 0.5 },
+    { sy: 292, w: 1.6, o: 0.8 },
+    { sy: 158, w: 1.0, o: 0.4 },
+    { sy: 244, w: 1.4, o: 0.6 },
+  ];
+
+  // Loose "file chips" drifting on the chaotic side: x, y, rotation, size.
+  const heroChips = [
+    [170, 555, -12, 16],
+    [95, 300, 8, 13],
+    [300, 240, -7, 14],
+    [250, 620, 14, 12],
+    [390, 500, -15, 11],
+  ];
+  const bandChips = [
+    [180, 118, -12, 13],
+    [330, 296, 9, 12],
+    [240, 208, -6, 11],
+    [110, 256, 14, 10],
+  ];
+  const heroStray = [
+    [140, 430, 1.6],
+    [330, 350, 1.3],
+    [60, 500, 1.4],
+    [220, 380, 1.1],
+  ];
+
+  // Depth class: chaos drifts the most on hover, the ordered side barely moves.
+  const depthClass = (o) => (o >= 0.7 ? "ring ring-2" : o >= 0.5 ? "ring ring-3" : "ring ring-4");
+
+  const heroEndY = (i) => 290 + i * 38;
+  const bandEndY = (i) => 158 + i * 26;
 
   return (
     <div ref={wrapRef} className={`rings-backdrop rings-${anchor}`} aria-hidden="true">
       <svg
-        viewBox="0 0 1200 800"
-        preserveAspectRatio={isRight ? "xMaxYMid slice" : "xMidYMax slice"}
+        viewBox={isHero ? "0 0 1200 800" : "0 0 1600 400"}
+        preserveAspectRatio={isHero ? "xMaxYMid slice" : "xMidYMid slice"}
       >
         <defs>
-          <linearGradient id={`ring-grad-${anchor}`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#c8ff72" stopOpacity="0.7" />
-            <stop offset="40%" stopColor="#4a8a4f" stopOpacity="0.3" />
-            <stop offset="100%" stopColor="#c8ff72" stopOpacity="0.05" />
+          <linearGradient id={`stream-${anchor}`} x1="0" y1="0" x2="1" y2="0">
+            {isHero ? (
+              <>
+                <stop offset="0%" stopColor="#c8ff72" stopOpacity="0" />
+                <stop offset="55%" stopColor="#7fb75a" stopOpacity="0.2" />
+                <stop offset="100%" stopColor="#eaffbe" stopOpacity="0.9" />
+              </>
+            ) : (
+              <>
+                <stop offset="0%" stopColor="#c8ff72" stopOpacity="0" />
+                <stop offset="70%" stopColor="#7fb75a" stopOpacity="0.18" />
+                <stop offset="90%" stopColor="#eaffbe" stopOpacity="0.75" />
+                <stop offset="100%" stopColor="#c8ff72" stopOpacity="0.45" />
+              </>
+            )}
           </linearGradient>
-          <radialGradient id={`ring-halo-${anchor}`}>
-            <stop offset="0%" stopColor="#c8ff72" stopOpacity="0.12" />
-            <stop offset="55%" stopColor="#173420" stopOpacity="0.10" />
-            <stop offset="100%" stopColor="#c8ff72" stopOpacity="0" />
-          </radialGradient>
+          <filter id={`soft-${anchor}`} x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="6" />
+          </filter>
+          <pattern id={`dotgrid-${anchor}`} width="26" height="26" patternUnits="userSpaceOnUse">
+            <circle cx="13" cy="13" r="1.2" fill="#7fb75a" />
+          </pattern>
         </defs>
 
-        <circle className="ring-halo" cx={cx} cy={cy} r={radii[4]} fill={`url(#ring-halo-${anchor})`} />
-        {radii.map((r, i) => (
-          <circle
-            key={r}
-            className={`ring ring-${i + 1}`}
-            cx={cx}
-            cy={cy}
-            r={r}
-            fill="none"
-            stroke={`url(#ring-grad-${anchor})`}
-            strokeWidth={i < 2 ? 1.8 : 1.2}
-          />
-        ))}
+        {isHero ? (
+          <>
+            {/* ordered side: dot-grid texture, index rail, docked slots */}
+            <g className="ring-halo">
+              <rect x="985" y="250" width="215" height="310" fill={`url(#dotgrid-${anchor})`} opacity="0.09" />
+              <circle cx="1160" cy="400" r="95" fill="#c8ff72" opacity="0.05" filter={`url(#soft-${anchor})`} />
+              <line x1="1166" y1="266" x2="1166" y2="534" stroke="#7fb75a" strokeOpacity="0.35" strokeWidth="1" />
+              {heroStreams.map((s, i) => (
+                <g key={`slot-${i}`}>
+                  <line
+                    x1="1160" y1={heroEndY(i)} x2="1172" y2={heroEndY(i)}
+                    stroke="#c8ff72" strokeOpacity="0.55" strokeWidth="1.5"
+                  />
+                  <circle cx="1150" cy={heroEndY(i)} r="2" fill="#eaffbe" opacity={0.35 + s.o * 0.6} />
+                </g>
+              ))}
+            </g>
+
+            {/* streams: chaos on the left easing into the rack */}
+            {heroStreams.map((s, i) => {
+              const d = `M -40 ${s.sy} C 430 ${s.sy + s.wob1}, 780 ${heroEndY(i) + s.wob2}, 1150 ${heroEndY(i)}`;
+              return (
+                <g key={`stream-${i}`} className={depthClass(s.o)}>
+                  {s.o >= 0.7 && (
+                    <path d={d} fill="none" stroke={`url(#stream-${anchor})`} strokeWidth={s.w * 5}
+                      opacity={s.o * 0.28} filter={`url(#soft-${anchor})`} />
+                  )}
+                  <path d={d} fill="none" stroke={`url(#stream-${anchor})`} strokeWidth={s.w} opacity={s.o} />
+                </g>
+              );
+            })}
+
+            {/* chaotic side: stray file chips + dust */}
+            <g className="ring ring-1">
+              {heroChips.map(([x, y, rot, size], i) => (
+                <rect
+                  key={`chip-${i}`} x={x} y={y} width={size} height={size * 0.78} rx="3"
+                  transform={`rotate(${rot} ${x} ${y})`}
+                  fill="#c8ff72" fillOpacity="0.05" stroke="#7fb75a" strokeOpacity="0.4" strokeWidth="1"
+                />
+              ))}
+              {heroStray.map(([x, y, r], i) => (
+                <circle key={`dust-${i}`} cx={x} cy={y} r={r} fill="#7fb75a" opacity="0.5" />
+              ))}
+            </g>
+          </>
+        ) : (
+          <>
+            {/* the index sits past the content, at the band's right edge */}
+            <g className="ring-halo">
+              <circle cx="1470" cy="195" r="60" fill="#c8ff72" opacity="0.05" filter={`url(#soft-${anchor})`} />
+              <line x1="1470" y1="140" x2="1470" y2="252" stroke="#7fb75a" strokeOpacity="0.35" strokeWidth="1" />
+              {bandStreams.map((s, i) => (
+                <circle key={`node-${i}`} cx="1470" cy={bandEndY(i)} r="1.6" fill="#eaffbe" opacity={0.3 + s.o * 0.5} />
+              ))}
+            </g>
+
+            {bandStreams.map((s, i) => {
+              const d = `M -40 ${s.sy} C 520 ${s.sy}, 1020 ${bandEndY(i)}, 1470 ${bandEndY(i)} L 1660 ${bandEndY(i)}`;
+              return (
+                <g key={`stream-${i}`} className={depthClass(s.o)}>
+                  {s.o >= 0.8 && (
+                    <path d={d} fill="none" stroke={`url(#stream-${anchor})`} strokeWidth={s.w * 5}
+                      opacity={s.o * 0.25} filter={`url(#soft-${anchor})`} />
+                  )}
+                  <path d={d} fill="none" stroke={`url(#stream-${anchor})`} strokeWidth={s.w} opacity={s.o} />
+                </g>
+              );
+            })}
+
+            {/* packets in transit, past the index only — square, no tilt */}
+            <g className="ring-halo">
+              <rect x="1520" y={bandEndY(1) - 4} width="8" height="8" rx="2"
+                fill="#c8ff72" fillOpacity="0.1" stroke="#c8ff72" strokeOpacity="0.45" strokeWidth="1" />
+              <rect x="1585" y={bandEndY(3) - 4} width="8" height="8" rx="2"
+                fill="#c8ff72" fillOpacity="0.1" stroke="#c8ff72" strokeOpacity="0.4" strokeWidth="1" />
+            </g>
+
+            {/* chaotic entry: tilted loose chips */}
+            <g className="ring ring-1">
+              {bandChips.map(([x, y, rot, size], i) => (
+                <rect
+                  key={`chip-${i}`} x={x} y={y} width={size} height={size * 0.78} rx="3"
+                  transform={`rotate(${rot} ${x} ${y})`}
+                  fill="#c8ff72" fillOpacity="0.05" stroke="#7fb75a" strokeOpacity="0.4" strokeWidth="1"
+                />
+              ))}
+            </g>
+          </>
+        )}
       </svg>
     </div>
   );
@@ -219,7 +351,7 @@ const PublicLanding = ({ mode, onGoogleCredential }) => {
       </nav>
 
       <section className="public-landing-hero">
-        <RingsBackdrop anchor="right" />
+        <FlowBackdrop anchor="right" />
         <div className="public-landing-hero-copy">
           <h1>
             Organize. Share.
@@ -308,7 +440,7 @@ const PublicLanding = ({ mode, onGoogleCredential }) => {
       </section>
 
       <section id="pricing" className="public-landing-cta-band">
-        <RingsBackdrop anchor="bottom" />
+        <FlowBackdrop anchor="bottom" />
         <div>
           <span className="public-cta-art" aria-hidden="true">
             <Sparkles size={34} />

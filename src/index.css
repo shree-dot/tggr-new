@@ -532,16 +532,20 @@ a {
   display: block;
 }
 
-.rings-backdrop .ring,
-.rings-backdrop .ring-halo {
-  transition:
-    transform 0.9s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.5s ease;
-  will-change: transform;
+.rings-backdrop {
+  opacity: 0.7;
+  transition: opacity 0.7s ease;
 }
 
-.rings-backdrop .ring {
-  opacity: 0.45;
+.public-landing-hero:hover > .rings-backdrop,
+.public-landing-cta-band:hover > .rings-backdrop {
+  opacity: 1;
+}
+
+.rings-backdrop .ring,
+.rings-backdrop .ring-halo {
+  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
 }
 
 .rings-backdrop .ring-halo {
@@ -566,11 +570,6 @@ a {
 
 .rings-backdrop .ring-5 {
   transform: translate(calc(var(--mx) * 7px), calc(var(--my) * 5px));
-}
-
-.public-landing-hero:hover .rings-backdrop .ring,
-.public-landing-cta-band:hover .rings-backdrop .ring {
-  opacity: 0.8;
 }
 
 .public-landing-hero-copy h1 {
@@ -1000,6 +999,12 @@ a {
 
 .public-landing-cta-band h2 {
   margin-top: 22px;
+}
+
+/* keep band copy readable over the flow-line backdrop */
+.public-landing-cta-band h2,
+.public-landing-cta-band p {
+  text-shadow: 0 1px 16px rgba(2, 6, 4, 0.9), 0 0 36px rgba(2, 6, 4, 0.7);
 }
 
 .public-landing-cta-band p {
