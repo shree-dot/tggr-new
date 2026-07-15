@@ -111,6 +111,44 @@ cd server && npm install && npm run dev
 npm install && npm run dev
 ```
 
+## Automated deploys (pull-based CD)
+
+Instead of pushing from CI, the NAS polls GitHub on a timer and redeploys
+itself when the branch has a new commit. No inbound SSH, no exposed ports, no
+secrets in GitHub — the NAS reaches out to GitHub, which it can already do.
+
+One-time setup on the NAS:
+
+```bash
+cd ~/tggr-new
+cp deploy.sh /DATA/deploy-tggr.sh      # copy OUT of the repo (git reset rewrites the repo)
+chmod +x /DATA/deploy-tggr.sh
+
+# test it once
+/DATA/deploy-tggr.sh
+```
+
+Then schedule it. **Cron** (simplest) — poll every 3 minutes:
+
+```bash
+crontab -e
+# add:
+*/3 * * * * /DATA/deploy-tggr.sh >> /DATA/tggr-deploy.log 2>&1
+```
+
+Or a **systemd timer** if you prefer (create `/etc/systemd/system/tggr-deploy.service`
+running the script, plus a `.timer` with `OnUnitActiveSec=3min`, then
+`systemctl enable --now tggr-deploy.timer`).
+
+Now your whole workflow is just: `git push` from your laptop → within 3 minutes
+the NAS pulls, rebuilds, and restarts. Watch it with `tail -f /DATA/tggr-deploy.log`.
+To deploy immediately without waiting for the timer, just run
+`/DATA/deploy-tggr.sh` on the NAS.
+
+Prerequisites: the NAS's git can already pull the repo (you've been doing it
+manually), the SSH/login user owns `~/tggr-new` and can run docker, and
+`/DATA/.docker` exists (`mkdir -p /DATA/.docker`).
+
 ## Environment variables (server)
 
 | Variable | Default | Purpose |
