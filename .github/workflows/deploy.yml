@@ -19,8 +19,8 @@ jobs:
           port: ${{ secrets.NAS_PORT }}
           # Use ONE of the two below. Key is recommended; comment it out and
           # uncomment `password` if you'd rather use a password.
-          key: ${{ secrets.NAS_SSH_KEY }}
-          # password: ${{ secrets.NAS_PASSWORD }}
+          # key: ${{ secrets.NAS_SSH_KEY }}
+          password: ${{ secrets.NAS_PASSWORD }}
           # Give docker builds room; large images can take a while.
           command_timeout: 30m
           script: |
