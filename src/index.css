@@ -36,12 +36,14 @@
   --font-sans: "Aspekta", "Segoe UI", sans-serif;
   --font-display: "Aspekta", "Segoe UI", sans-serif;
   --gutter: 10px;
-  --bg: #0f1419;
-  --surface: #181f26;
-  --surface-2: #222c35;
-  --border: #2f3d49;
-  --text: #e2ebf3;
-  --muted: #9daeba;
+  /* Green-black ramp shared with the public landing page (--bg matches its
+     base exactly) so the app and marketing site read as one product. */
+  --bg: #020604;
+  --surface: #0a1210;
+  --surface-2: #121b17;
+  --border: #202c25;
+  --text: #f4f6ee;
+  --muted: #aeb7ad;
   --primary: #c8ff72;
   --primary-strong: #aee94f;
   --on-primary: #071008;
@@ -52,8 +54,8 @@
   --ok: #c8ff72;
   --ok-strong: #8fbf3e;
   --ok-soft: rgba(200, 255, 114, 0.18);
-  --scrollbar-thumb: rgba(157, 174, 186, 0.32);
-  --scrollbar-thumb-hover: rgba(157, 174, 186, 0.52);
+  --scrollbar-thumb: rgba(174, 183, 173, 0.32);
+  --scrollbar-thumb-hover: rgba(174, 183, 173, 0.52);
   --scrollbar-track: transparent;
 }
 
@@ -180,7 +182,7 @@ a {
 
 /* Header */
 .app-header-shell {
-  background: #141c24;
+  background: #080f0d;
   border-bottom: 1px solid var(--border);
 }
 
@@ -1087,7 +1089,7 @@ a {
   overflow: hidden;
   background:
     radial-gradient(circle at 15% 20%, rgba(200, 255, 114, 0.14), transparent 45%),
-    radial-gradient(circle at 90% 20%, rgba(96, 165, 250, 0.12), transparent 48%),
+    radial-gradient(circle at 90% 20%, rgba(127, 183, 90, 0.12), transparent 48%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
   animation: fade-up 0.55s ease both;
 }
@@ -1191,7 +1193,7 @@ a {
 .menu-card-title {
   margin: 0;
   font-size: 1.1rem;
-  color: #c9f6de;
+  color: var(--text);
 }
 
 .menu-card-text {
@@ -1260,7 +1262,7 @@ a {
   height: 16px;
   border-radius: 999px;
   background: #ff5e75;
-  border: 2px solid #141c24;
+  border: 2px solid #080f0d;
   position: absolute;
   right: -4px;
   top: -4px;
@@ -1550,7 +1552,7 @@ ul {
   margin-top: 0.2rem;
   border: 1px solid rgba(200, 255, 114, 0.35);
   background: rgba(200, 255, 114, 0.12);
-  color: #bff5d8;
+  color: var(--primary);
   text-decoration: none;
   border-radius: 999px;
   padding: 0.45rem 0.75rem;
@@ -1722,7 +1724,7 @@ ul {
 .ui-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(3, 6, 10, 0.72);
+  background: rgba(2, 6, 4, 0.78);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -2457,7 +2459,7 @@ ul {
   flex-direction: column;
   gap: 2px;
   padding: 0.5rem 1rem 0.75rem;
-  background: #141c24;
+  background: #080f0d;
   border-top: 1px solid var(--border);
 }
 
