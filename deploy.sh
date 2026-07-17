@@ -17,13 +17,16 @@
 set -euo pipefail
 
 # --- config (override via env if your paths differ) ---
-REPO_DIR="${REPO_DIR:-$HOME/tggr-new}"
+# Absolute defaults on purpose: sudo/cron/systemd reset $HOME to /root, so
+# anything derived from $HOME breaks depending on how this is invoked.
+REPO_DIR="${REPO_DIR:-/DATA/tggr-new}"
 BRANCH="${BRANCH:-master}"
 export DOCKER_CONFIG="${DOCKER_CONFIG:-/DATA/.docker}"   # ZimaOS: /root is read-only
 # ------------------------------------------------------
 
 # Prevent overlapping runs if a build outlasts the poll interval.
-exec 9>/tmp/tggr-deploy.lock
+# Absolute path so root and normal-user runs share the same lock.
+exec 9>"${TGGR_LOCK:-/DATA/.tggr-deploy.lock}"
 flock -n 9 || { echo "$(date '+%F %T') another deploy is running, skipping"; exit 0; }
 
 cd "$REPO_DIR"
