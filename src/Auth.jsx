@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useState } from "react";
 import api from "./api.js";
-import { Spinner } from "./components/ui/compat";
 export const AuthContext = React.createContext();
 
+// Note: this provider never blocks rendering on the auth check. The public
+// home page must show real content immediately (no spinner, no redirect) —
+// only routes wrapped in PrivateRoute wait on `pending`.
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [pending, setPending] = useState(true);
@@ -32,30 +34,11 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  if (pending) {
-    return (
-      <div style={{ width: "100%" }}>
-        <Spinner
-          animation="border"
-          variant="success"
-          style={{
-            position: "absolute",
-            height: "50px",
-            width: "50px",
-            top: "20%",
-            left: "50%",
-            marginLeft: "-25px",
-            marginTop: "-25px",
-          }}
-        />
-      </div>
-    );
-  }
-
   return (
     <AuthContext.Provider
       value={{
         currentUser,
+        pending,
         refreshUser,
         signOut,
       }}
