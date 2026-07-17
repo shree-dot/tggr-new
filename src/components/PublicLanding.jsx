@@ -492,8 +492,8 @@ const PublicLanding = ({ mode, onGoogleCredential }) => {
           <div>
             <h3>Company</h3>
             <a href="#about">About Us</a>
-            <a href="#about">Privacy Policy</a>
-            <a href="#about">Terms of Service</a>
+            <a href="/privacy.html">Privacy Policy</a>
+            <a href="/terms.html">Terms of Service</a>
           </div>
         </div>
 
