@@ -18,24 +18,44 @@
       real, JS-enabled visitor. This markup exists so that anything reading
       the raw HTML directly (crawlers, automated checks, slow/no-JS clients)
       still sees a real description of the app instead of a blank shell.
+
+      It intentionally reuses the real landing page's CSS classes (loaded
+      via the stylesheet link below, independent of the JS bundle) rather
+      than inline styles, so the fallback already looks like the real hero
+      the moment CSS loads — the swap to the React-rendered version is then
+      visually seamless instead of a jarring style change.
     -->
     <div id="root">
-      <main style="max-width:640px;margin:64px auto;padding:0 24px;font-family:-apple-system,'Segoe UI',system-ui,sans-serif;background:#020604;color:#f4f6ee;">
-        <h1 style="font-size:2rem;font-weight:700;margin:0 0 14px;">Tggr</h1>
-        <p style="font-size:1.05rem;line-height:1.7;color:#dfe6da;margin:0 0 20px;">
-          Tggr is a tag-based file sharing app. Create a tag, upload files to
-          it, and share the tag name with anyone you want to collaborate
-          with &mdash; no folders, no complicated permissions, just simple,
-          powerful tags to organize and share files across devices in an
-          instant.
-        </p>
-        <ul style="line-height:1.85;color:#dfe6da;margin:0 0 20px;padding-left:20px;">
-          <li><strong>Organize with tags</strong> &mdash; group related files together under a single shareable tag.</li>
-          <li><strong>Share in an instant</strong> &mdash; anyone with the tag name can view or contribute, based on the access rules you choose.</li>
-          <li><strong>Collaborate seamlessly</strong> &mdash; everyone with access can upload and stay in sync.</li>
-        </ul>
-        <p style="color:#aeb7ad;font-size:0.9rem;margin:0;">Sign in with Google to get started.</p>
-      </main>
+      <div class="public-landing">
+        <nav class="public-landing-nav" aria-label="Landing navigation">
+          <a class="public-landing-brand" href="/login">
+            <img src="/landing/tggr.webp" alt="Tggr" />
+          </a>
+        </nav>
+        <section class="public-landing-hero">
+          <div class="public-landing-hero-copy">
+            <!--
+              The app name must appear here as real text (not just the logo
+              image) and match the OAuth consent screen name exactly, and the
+              purpose must be stated plainly — automated branding checks read
+              this raw HTML without executing JavaScript.
+            -->
+            <h1>Tggr</h1>
+            <p>
+              <strong>Tggr</strong> is a tag-based file sharing app. Instead of
+              folders and complicated permissions, you create a tag, upload
+              files to it, and share the tag name with the people you want to
+              collaborate with.
+            </p>
+            <p>
+              Use Tggr to organize files under tags, share them instantly
+              across devices, and control exactly who can view or upload to
+              each tag. Sign in with your Google account to create your first
+              tag and start sharing.
+            </p>
+          </div>
+        </section>
+      </div>
     </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
