@@ -3,7 +3,7 @@ import api from "../api.js";
 import { AuthContext } from "../Auth.jsx";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import prof from "../svg/prof.png";
-import { Menu, X, Bell, ChevronDown, LogOut } from "lucide-react";
+import { Menu, X, Bell, ChevronDown, LogOut, ShieldCheck } from "lucide-react";
 import { Button } from "./ui/compat";
 
 const Header = () => {
@@ -171,6 +171,16 @@ const Header = () => {
                   <span className="app-profile-menu-title">Signed in as</span>
                   <strong>{user || "User"}</strong>
                 </div>
+                {currentUser?.isAdmin && (
+                  <Link
+                    className="app-profile-signout app-profile-admin"
+                    to="/admin"
+                    onClick={() => setOpenProfileMenu(false)}
+                  >
+                    <ShieldCheck size={14} />
+                    <span>Admin</span>
+                  </Link>
+                )}
                 <button
                   className="app-profile-signout"
                   type="button"

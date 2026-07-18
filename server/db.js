@@ -68,6 +68,19 @@ try {
   // column already exists
 }
 
+// Admin/user-management columns: access revocation + per-user storage quota.
+try {
+  db.exec("ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0");
+} catch {
+  // column already exists
+}
+try {
+  // 0 = unlimited
+  db.exec("ALTER TABLE users ADD COLUMN storage_limit_bytes INTEGER NOT NULL DEFAULT 0");
+} catch {
+  // column already exists
+}
+
 export const parseJson = (value, fallback) => {
   try {
     const parsed = JSON.parse(value);

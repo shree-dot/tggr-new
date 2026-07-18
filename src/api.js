@@ -165,6 +165,12 @@ const api = {
   setFavorite: (tag, favorite) =>
     request("/api/me/favorites", { method: "PUT", body: { tag, favorite } }),
 
+  // --- admin ---
+  adminOverview: () => request("/api/admin/overview"),
+  adminUsers: () => request("/api/admin/users"),
+  adminUpdateUser: (uid, body) =>
+    request(`/api/admin/users/${encodeURIComponent(uid)}`, { method: "PATCH", body }),
+
   // --- files ---
   listFiles: (tag) => request(`/api/tags/${encodeURIComponent(tag)}/files`),
   deleteFile: (tag, filename) =>

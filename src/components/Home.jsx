@@ -3,6 +3,7 @@ import Header from "./Header";
 import Menu from "./Menu.jsx";
 import Upload from "./Upload";
 import Manage from "./Manage";
+import Admin from "./Admin.jsx";
 import { Navigate, Route, Routes } from "react-router-dom";
 import Create from "./Create.jsx";
 
@@ -16,6 +17,7 @@ const Home = () => {
           <Route path="/upload/:tag?" element={<Upload />} />
           <Route path="/create" element={<Create />} />
           <Route path="/manage/:tag?" element={<Manage />} />
+          <Route path="/admin" element={<Admin />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

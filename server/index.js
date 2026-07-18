@@ -18,6 +18,14 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const ALLOW_SIGNUP = (process.env.ALLOW_SIGNUP || "true").toLowerCase() !== "false";
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
+// Comma-separated list of admin emails; these accounts see the admin
+// dashboard and can manage users, quotas, and access.
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "sagarshreesha1999@gmail.com")
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+const isAdminUser = (user) => ADMIN_EMAILS.includes((user?.email || "").toLowerCase());
+
 const secretFile = path.join(DATA_DIR, ".jwt-secret");
 const JWT_SECRET =
   process.env.JWT_SECRET ||
@@ -87,6 +95,7 @@ const publicUser = (row) => ({
   name: row.name,
   email: row.email,
   favoriteTags: parseJson(row.favorite_tags, []),
+  isAdmin: isAdminUser(row),
 });
 
 const getUserByUid = db.prepare("SELECT * FROM users WHERE uid = ?");
@@ -117,11 +126,37 @@ const requireAuth = (req, res, next) => {
     if (!user) {
       return res.status(401).json({ error: "Not authenticated" });
     }
+    if (user.disabled) {
+      res.clearCookie(COOKIE_NAME, { path: "/" });
+      return res.status(403).json({ error: "Your access has been revoked by the administrator" });
+    }
     req.user = user;
     next();
   } catch {
     return res.status(401).json({ error: "Not authenticated" });
   }
+};
+
+const requireAdmin = (req, res, next) => {
+  if (!isAdminUser(req.user)) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+};
+
+// Bytes attributed to a user across all tags (their uploads, wherever they live).
+const getUserUsage = db.prepare(
+  "SELECT COALESCE(SUM(size), 0) AS bytes FROM files WHERE uploaded_by_uid = ?"
+);
+
+// Returns an error string if adding `incomingBytes` would push the user over
+// their storage limit; null when allowed (no limit, or within it).
+const quotaViolation = (user, incomingBytes) => {
+  if (!user.storage_limit_bytes) return null;
+  const used = getUserUsage.get(user.uid).bytes;
+  if (used + incomingBytes <= user.storage_limit_bytes) return null;
+  const gb = (n) => (n / (1024 * 1024 * 1024)).toFixed(2);
+  return `Storage limit reached: ${gb(used)} GB used of your ${gb(user.storage_limit_bytes)} GB limit`;
 };
 
 const canViewTag = (tag, uid) => {
@@ -181,6 +216,9 @@ app.post("/api/auth/google", authRateLimit, async (req, res) => {
 
   const existing = getUserByEmail.get(payload.email);
   if (existing) {
+    if (existing.disabled) {
+      return res.status(403).json({ error: "Your access has been revoked by the administrator" });
+    }
     issueToken(req, res, existing.uid);
     return res.json({ user: publicUser(existing) });
   }
@@ -449,6 +487,12 @@ app.post("/api/tags/:name/files", requireAuth, upload.single("file"), (req, res)
     return res.status(400).json({ error: "Invalid filename" });
   }
 
+  const quotaError = quotaViolation(req.user, req.file.size);
+  if (quotaError) {
+    cleanup();
+    return res.status(413).json({ error: quotaError });
+  }
+
   fs.mkdirSync(tagDir(tag.name), { recursive: true });
   fs.renameSync(req.file.path, path.join(tagDir(tag.name), filename));
 
@@ -527,10 +571,19 @@ app.post("/api/tags/:name/uploads/:uploadId/complete", requireAuth, (req, res) =
   }
 
   const dir = path.join(UPLOADS_TMP, uploadId);
+  let incomingBytes = 0;
   for (let i = 0; i < total; i++) {
-    if (!fs.existsSync(path.join(dir, String(i)))) {
+    const chunkPath = path.join(dir, String(i));
+    if (!fs.existsSync(chunkPath)) {
       return res.status(400).json({ error: `Missing chunk ${i}, please retry the upload` });
     }
+    incomingBytes += fs.statSync(chunkPath).size;
+  }
+
+  const quotaError = quotaViolation(req.user, incomingBytes);
+  if (quotaError) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    return res.status(413).json({ error: quotaError });
   }
 
   fs.mkdirSync(tagDir(tag.name), { recursive: true });
@@ -625,6 +678,112 @@ app.delete("/api/tags/:name/files/:filename", requireAuth, (req, res) => {
   fs.rmSync(path.join(tagDir(tag.name), filename), { force: true });
   fs.rmSync(path.join(thumbsDir(tag.name), `${filename}.webp`), { force: true });
   db.prepare("DELETE FROM files WHERE tag_id = ? AND filename = ?").run(tag.id, filename);
+  res.json({ ok: true });
+});
+
+/* ---------- admin ---------- */
+
+app.get("/api/admin/overview", requireAuth, requireAdmin, (req, res) => {
+  const totals = {
+    users: db.prepare("SELECT COUNT(*) AS n FROM users").get().n,
+    activeUsers: db.prepare("SELECT COUNT(*) AS n FROM users WHERE disabled = 0").get().n,
+    tags: db.prepare("SELECT COUNT(*) AS n FROM tags").get().n,
+    files: db.prepare("SELECT COUNT(*) AS n FROM files").get().n,
+    bytes: db.prepare("SELECT COALESCE(SUM(size), 0) AS n FROM files").get().n,
+  };
+
+  // Physical disk footprint of the data volume, when the platform exposes it.
+  let disk = null;
+  try {
+    const stat = fs.statfsSync(DATA_DIR);
+    disk = {
+      total: stat.blocks * stat.bsize,
+      free: stat.bavail * stat.bsize,
+    };
+  } catch {
+    // statfs unavailable on this platform — the UI hides the disk tile.
+  }
+
+  const recentFiles = db
+    .prepare(
+      `SELECT f.filename, f.size, f.uploaded_by, f.uploaded_at, t.name AS tag
+       FROM files f JOIN tags t ON t.id = f.tag_id
+       ORDER BY f.uploaded_at DESC LIMIT 8`
+    )
+    .all();
+
+  res.json({ totals, disk, recentFiles });
+});
+
+app.get("/api/admin/users", requireAuth, requireAdmin, (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT u.uid, u.name, u.email, u.auth_provider, u.created_at, u.disabled,
+              u.storage_limit_bytes,
+              COALESCE(f.bytes, 0) AS bytes_used,
+              COALESCE(f.file_count, 0) AS file_count,
+              f.last_upload_at,
+              COALESCE(t.tag_count, 0) AS tag_count
+       FROM users u
+       LEFT JOIN (
+         SELECT uploaded_by_uid,
+                SUM(size) AS bytes,
+                COUNT(*) AS file_count,
+                MAX(uploaded_at) AS last_upload_at
+         FROM files GROUP BY uploaded_by_uid
+       ) f ON f.uploaded_by_uid = u.uid
+       LEFT JOIN (
+         SELECT owner_uid, COUNT(*) AS tag_count FROM tags GROUP BY owner_uid
+       ) t ON t.owner_uid = u.uid
+       ORDER BY bytes_used DESC, u.created_at ASC`
+    )
+    .all();
+
+  res.json({
+    users: rows.map((row) => ({
+      uid: row.uid,
+      name: row.name,
+      email: row.email,
+      provider: row.auth_provider,
+      createdAt: row.created_at,
+      disabled: !!row.disabled,
+      isAdmin: isAdminUser(row),
+      storageLimitBytes: row.storage_limit_bytes,
+      bytesUsed: row.bytes_used,
+      fileCount: row.file_count,
+      tagCount: row.tag_count,
+      lastUploadAt: row.last_upload_at,
+    })),
+  });
+});
+
+app.patch("/api/admin/users/:uid", requireAuth, requireAdmin, (req, res) => {
+  const target = getUserByUid.get(req.params.uid);
+  if (!target) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const { disabled, storageLimitGb } = req.body || {};
+
+  if (disabled !== undefined) {
+    if (target.uid === req.user.uid) {
+      return res.status(400).json({ error: "You cannot revoke your own access" });
+    }
+    if (isAdminUser(target) && disabled) {
+      return res.status(400).json({ error: "Admin accounts cannot be revoked" });
+    }
+    db.prepare("UPDATE users SET disabled = ? WHERE uid = ?").run(disabled ? 1 : 0, target.uid);
+  }
+
+  if (storageLimitGb !== undefined) {
+    const gb = Number(storageLimitGb);
+    if (!Number.isFinite(gb) || gb < 0 || gb > 100000) {
+      return res.status(400).json({ error: "Invalid storage limit" });
+    }
+    const bytes = Math.round(gb * 1024 * 1024 * 1024);
+    db.prepare("UPDATE users SET storage_limit_bytes = ? WHERE uid = ?").run(bytes, target.uid);
+  }
+
   res.json({ ok: true });
 });
 
