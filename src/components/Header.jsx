@@ -3,8 +3,8 @@ import api from "../api.js";
 import { AuthContext } from "../Auth.jsx";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import prof from "../svg/prof.png";
-import { Menu, X, Bell, ChevronDown, LogOut, ShieldCheck } from "lucide-react";
-import { Button } from "./ui/compat";
+import { Menu, X, Bell, ChevronDown, LogOut, ShieldCheck, Smartphone, Copy, Check } from "lucide-react";
+import { Button, Modal } from "./ui/compat";
 
 const Header = () => {
   const navigate = useNavigate();
@@ -14,8 +14,35 @@ const Header = () => {
   const [openNotifications, setOpenNotifications] = React.useState(false);
   const [openProfileMenu, setOpenProfileMenu] = React.useState(false);
   const [openMobileNav, setOpenMobileNav] = React.useState(false);
+  const [showTokenModal, setShowTokenModal] = React.useState(false);
+  const [deviceToken, setDeviceToken] = React.useState("");
+  const [tokenError, setTokenError] = React.useState("");
+  const [copied, setCopied] = React.useState(false);
   const notiWrapRef = React.useRef(null);
   const profileWrapRef = React.useRef(null);
+
+  const openTokenModal = async () => {
+    setOpenProfileMenu(false);
+    setShowTokenModal(true);
+    setCopied(false);
+    setTokenError("");
+    try {
+      const { token } = await api.deviceToken();
+      setDeviceToken(token);
+    } catch (error) {
+      setTokenError(error.message);
+    }
+  };
+
+  const copyToken = async () => {
+    try {
+      await navigator.clipboard.writeText(deviceToken);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard unavailable (non-https LAN) — user can select manually
+    }
+  };
 
   const user = currentUser?.name || "";
 
@@ -184,6 +211,14 @@ const Header = () => {
                 <button
                   className="app-profile-signout"
                   type="button"
+                  onClick={openTokenModal}
+                >
+                  <Smartphone size={14} />
+                  <span>Mobile Upload</span>
+                </button>
+                <button
+                  className="app-profile-signout"
+                  type="button"
                   onClick={handleSignOut}
                 >
                   <LogOut size={14} />
@@ -194,6 +229,68 @@ const Header = () => {
           </div>
         </div>
       </div>
+
+      <Modal
+        show={showTokenModal}
+        onHide={() => setShowTokenModal(false)}
+        size="md"
+        centered
+      >
+        <Modal.Header
+          style={{ backgroundColor: "var(--surface)", color: "var(--primary)", border: "none" }}
+        >
+          <Modal.Title>
+            <b>Mobile Upload Token</b>
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body
+          style={{ backgroundColor: "var(--surface)", color: "var(--text)", border: "none" }}
+        >
+          <p style={{ marginTop: 0, fontSize: "0.9rem", color: "var(--muted)" }}>
+            Paste this token into the iOS Shortcut's <b>Authorization</b> header as{" "}
+            <code>Bearer &lt;token&gt;</code>. It lets that Shortcut upload as you for one
+            year — treat it like a password.
+          </p>
+          {tokenError && (
+            <p style={{ color: "var(--danger)", fontWeight: 600 }}>{tokenError}</p>
+          )}
+          {deviceToken && (
+            <>
+              <div
+                style={{
+                  background: "var(--surface-2)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "10px",
+                  padding: "10px 12px",
+                  fontFamily: "Consolas, monospace",
+                  fontSize: "0.72rem",
+                  wordBreak: "break-all",
+                  maxHeight: "110px",
+                  overflowY: "auto",
+                  userSelect: "all",
+                }}
+              >
+                {deviceToken}
+              </div>
+              <Button
+                id="cusbtn"
+                onClick={copyToken}
+                style={{
+                  marginTop: "0.75rem",
+                  color: "var(--on-primary)",
+                  fontWeight: 700,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                }}
+              >
+                {copied ? <Check size={14} /> : <Copy size={14} />}
+                {copied ? "Copied" : "Copy Token"}
+              </Button>
+            </>
+          )}
+        </Modal.Body>
+      </Modal>
 
       {/* Mobile nav drawer */}
       {openMobileNav && (

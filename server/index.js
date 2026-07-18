@@ -244,6 +244,33 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
   res.json({ user: publicUser(req.user) });
 });
 
+// Long-lived bearer token for iOS Shortcuts / scripted uploads, where the
+// Google Sign-In browser flow isn't possible. Same JWT the cookie uses,
+// just with a 1-year expiry; revocation = user gets disabled or the
+// JWT secret rotates.
+app.post("/api/auth/device-token", requireAuth, (req, res) => {
+  const token = jwt.sign({ uid: req.user.uid }, JWT_SECRET, { expiresIn: "365d" });
+  res.json({ token, expiresInDays: 365 });
+});
+
+// Tag names the user can upload to, shaped for the Shortcuts "Choose from
+// List" action: owned tags plus tags they've been granted access to.
+app.get("/api/shortcut/tags", requireAuth, (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT name, allowed_uids, owner_uid FROM tags ORDER BY last_activity_at DESC`
+    )
+    .all();
+  const names = rows
+    .filter(
+      (row) =>
+        row.owner_uid === req.user.uid ||
+        parseJson(row.allowed_uids, []).includes(req.user.uid)
+    )
+    .map((row) => row.name);
+  res.json({ tags: names });
+});
+
 /* ---------- favorites ---------- */
 
 app.put("/api/me/favorites", requireAuth, (req, res) => {

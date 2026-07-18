@@ -145,6 +145,7 @@ const api = {
   googleLogin: (credential) =>
     request("/api/auth/google", { method: "POST", body: { credential } }),
   logout: () => request("/api/auth/logout", { method: "POST" }),
+  deviceToken: () => request("/api/auth/device-token", { method: "POST" }),
 
   // --- tags ---
   myTags: () => request("/api/tags/mine"),
