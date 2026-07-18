@@ -11,6 +11,8 @@ import {
   FileSpreadsheet,
   FileVideo,
   FileAudio,
+  MoreVertical,
+  Pencil,
 } from "lucide-react";
 import {
   Alert,
@@ -92,6 +94,11 @@ const Manage = () => {
   const [isTagSidebarOpen, setIsTagSidebarOpen] = useState(false);
   const [deleteTagCandidate, setDeleteTagCandidate] = useState(null);
   const [deletingTag, setDeletingTag] = useState(false);
+  const [menuOpenFor, setMenuOpenFor] = useState(null);
+  const [renameCandidate, setRenameCandidate] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState("");
   const loadFilesRequestIdRef = React.useRef(0);
 
   React.useEffect(() => {
@@ -422,6 +429,58 @@ const Manage = () => {
     }
   };
 
+  const openRename = (item) => {
+    setMenuOpenFor(null);
+    setRenameCandidate(item);
+    setRenameValue(item.name);
+    setRenameError("");
+  };
+
+  const closeRename = () => {
+    if (!renaming) {
+      setRenameCandidate(null);
+    }
+  };
+
+  const submitRename = async () => {
+    if (!renameCandidate || renaming) {
+      return;
+    }
+    const nextName = renameValue.trim();
+    if (!nextName) {
+      setRenameError("Name can't be empty");
+      return;
+    }
+    if (/[\\/]/.test(nextName) || nextName.startsWith(".")) {
+      setRenameError("Name can't contain slashes or start with a dot");
+      return;
+    }
+    if (nextName === renameCandidate.name) {
+      setRenameCandidate(null);
+      return;
+    }
+
+    setRenaming(true);
+    setRenameError("");
+    try {
+      const { file: updated } = await api.renameFile(
+        tagname,
+        renameCandidate.name,
+        nextName
+      );
+      setFiles((prev) =>
+        prev.map((entry) =>
+          entry.fullPath === renameCandidate.fullPath ? { ...entry, ...updated } : entry
+        )
+      );
+      setRenameCandidate(null);
+    } catch (error) {
+      setRenameError(error.message);
+    } finally {
+      setRenaming(false);
+    }
+  };
+
   const sortedFiles = useMemo(() => {
     const copy = [...files];
     copy.sort((a, b) => {
@@ -514,6 +573,68 @@ const Manage = () => {
       ),
     [normalizedMyTags, query]
   );
+
+  // Owner-only kebab menu (Rename / Delete) shared by tiles and list rows.
+  const renderFileMenu = (item, variant) => {
+    if (uid !== ownerUid) {
+      return null;
+    }
+    const isOpen = menuOpenFor === item.fullPath;
+    return (
+      <div className={`file-menu-wrap ${variant}`} onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          className="file-menu-btn"
+          aria-label="File actions"
+          aria-expanded={isOpen}
+          onClick={(e) => {
+            e.stopPropagation();
+            setMenuOpenFor(isOpen ? null : item.fullPath);
+          }}
+        >
+          <MoreVertical size={15} />
+        </button>
+        {isOpen && (
+          <>
+            <div
+              className="file-menu-backdrop"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpenFor(null);
+              }}
+            />
+            <div className="file-menu" role="menu">
+              <button
+                type="button"
+                className="file-menu-item"
+                role="menuitem"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openRename(item);
+                }}
+              >
+                <Pencil size={14} />
+                <span>Rename</span>
+              </button>
+              <button
+                type="button"
+                className="file-menu-item danger"
+                role="menuitem"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpenFor(null);
+                  handleDelete(item);
+                }}
+              >
+                <Trash2 size={14} />
+                <span>Delete</span>
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div>
@@ -763,16 +884,8 @@ const Manage = () => {
                     onClick={() => window.open(item.url)}
                     className="file-tile-card"
                   >
-                    {/* delete icon — stop propagation so it doesn't trigger open */}
-                    {uid === ownerUid && (
-                      <button
-                        className="file-tile-delete"
-                        onClick={(e) => { e.stopPropagation(); handleDelete(item); }}
-                        title="Delete"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    )}
+                    {/* actions menu — stop propagation so it doesn't trigger open */}
+                    {renderFileMenu(item, "tile")}
 
                     {/* thumbnail */}
                     <div className="file-tile-thumb">
@@ -871,28 +984,7 @@ const Manage = () => {
                         </div>
                       </div>
                     </div>
-                    {uid === ownerUid && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(item); }}
-                        title="Delete"
-                        style={{
-                          flexShrink: 0,
-                          background: "rgba(200,85,102,0.13)",
-                          border: "1px solid rgba(200,85,102,0.28)",
-                          borderRadius: "6px",
-                          width: "26px",
-                          height: "26px",
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          padding: 0,
-                          color: "var(--danger)",
-                        }}
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    )}
+                    {renderFileMenu(item, "list")}
                   </div>
                 ))}
               </div>
@@ -1093,6 +1185,76 @@ const Manage = () => {
               style={{ fontWeight: "bold" }}
             >
               {deletingTag ? "Deleting..." : "Delete Everything"}
+            </Button>
+          </Modal.Footer>
+        </Modal>
+
+        <Modal
+          show={Boolean(renameCandidate)}
+          onHide={closeRename}
+          size="sm"
+          aria-labelledby="rename-file-modal-title"
+          centered
+          transition={Fade}
+          backdropTransition={Fade}
+        >
+          <Modal.Header
+            style={{ backgroundColor: "var(--surface)", color: "var(--primary)", border: "none" }}
+          >
+            <Modal.Title id="rename-file-modal-title">
+              <b>Rename file</b>
+            </Modal.Title>
+          </Modal.Header>
+
+          <Modal.Body style={{ backgroundColor: "var(--surface)", color: "var(--text)", border: "none" }}>
+            <FormControl
+              autoFocus
+              value={renameValue}
+              onChange={(e) => {
+                setRenameValue(e.target.value);
+                if (renameError) setRenameError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitRename();
+              }}
+              placeholder="File name"
+              aria-label="New file name"
+              disabled={renaming}
+              style={{
+                backgroundColor: "var(--surface-2)",
+                border: "1px solid var(--border)",
+                color: "var(--text)",
+                fontWeight: "600",
+                height: "44px",
+                fontSize: "16px",
+              }}
+            />
+            <p style={{ margin: "0.5rem 0 0", fontSize: "0.78rem", color: "var(--muted)" }}>
+              Keep the extension (e.g. <code>.jpg</code>) to preserve the file's type and preview.
+            </p>
+            {renameError && (
+              <p style={{ margin: "0.5rem 0 0", fontSize: "0.82rem", color: "var(--danger)", fontWeight: 600 }}>
+                {renameError}
+              </p>
+            )}
+          </Modal.Body>
+
+          <Modal.Footer style={{ backgroundColor: "var(--surface)", border: "none" }}>
+            <Button
+              variant="secondary"
+              onClick={closeRename}
+              disabled={renaming}
+              style={{ fontWeight: "bold" }}
+            >
+              Cancel
+            </Button>
+            <Button
+              id="cusbtn"
+              onClick={submitRename}
+              disabled={renaming}
+              style={{ color: "var(--on-primary)", fontWeight: "bold" }}
+            >
+              {renaming ? "Renaming..." : "Rename"}
             </Button>
           </Modal.Footer>
         </Modal>

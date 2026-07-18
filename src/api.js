@@ -179,6 +179,11 @@ const api = {
       `/api/tags/${encodeURIComponent(tag)}/files/${encodeURIComponent(filename)}`,
       { method: "DELETE" }
     ),
+  renameFile: (tag, filename, newName) =>
+    request(
+      `/api/tags/${encodeURIComponent(tag)}/files/${encodeURIComponent(filename)}`,
+      { method: "PATCH", body: { newName } }
+    ),
 
   // Upload with progress via XHR (fetch has no upload progress events).
   // Large files are chunked so each request stays under the tunnel's 100MB cap.

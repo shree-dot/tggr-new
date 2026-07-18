@@ -708,6 +708,65 @@ app.delete("/api/tags/:name/files/:filename", requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+app.patch("/api/tags/:name/files/:filename", requireAuth, (req, res) => {
+  const tag = getTagByName.get(req.params.name);
+  if (!tag) {
+    return res.status(404).json({ error: "Tag not found" });
+  }
+  if (tag.owner_uid !== req.user.uid) {
+    return res.status(403).json({ error: "Only the owner can rename files" });
+  }
+
+  const oldName = req.params.filename;
+  const newName = (req.body?.newName || "").trim();
+  if (!isSafeFilename(oldName) || !isSafeFilename(newName)) {
+    return res.status(400).json({ error: "Invalid filename" });
+  }
+
+  const fromPath = path.join(tagDir(tag.name), oldName);
+  if (!fs.existsSync(fromPath)) {
+    return res.status(404).json({ error: "File not found" });
+  }
+  if (newName === oldName) {
+    const row = db
+      .prepare("SELECT * FROM files WHERE tag_id = ? AND filename = ?")
+      .get(tag.id, oldName);
+    return res.json({ file: fileRowToJson(tag, row) });
+  }
+
+  const toPath = path.join(tagDir(tag.name), newName);
+  if (fs.existsSync(toPath)) {
+    return res.status(409).json({ error: "A file with that name already exists" });
+  }
+
+  fs.renameSync(fromPath, toPath);
+
+  // Carry the thumbnail across too, if one exists.
+  const oldThumb = path.join(thumbsDir(tag.name), `${oldName}.webp`);
+  if (fs.existsSync(oldThumb)) {
+    fs.renameSync(oldThumb, path.join(thumbsDir(tag.name), `${newName}.webp`));
+  }
+
+  const updated = db
+    .prepare("UPDATE files SET filename = ? WHERE tag_id = ? AND filename = ?")
+    .run(newName, tag.id, oldName);
+  if (updated.changes === 0) {
+    // No DB row yet (e.g. a file copied in manually) — create one from disk.
+    const stat = fs.statSync(toPath);
+    const hasThumb = fs.existsSync(path.join(thumbsDir(tag.name), `${newName}.webp`));
+    db.prepare(
+      `INSERT INTO files (tag_id, filename, size, uploaded_by, uploaded_by_uid, has_thumbnail, uploaded_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(tag.id, newName, stat.size, req.user.name, req.user.uid, hasThumb ? 1 : 0, stat.mtime.toISOString());
+  }
+  touchActivity.run(tag.id);
+
+  const row = db
+    .prepare("SELECT * FROM files WHERE tag_id = ? AND filename = ?")
+    .get(tag.id, newName);
+  res.json({ file: fileRowToJson(tag, row) });
+});
+
 /* ---------- admin ---------- */
 
 app.get("/api/admin/overview", requireAuth, requireAdmin, (req, res) => {
