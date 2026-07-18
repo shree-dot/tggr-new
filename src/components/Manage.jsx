@@ -27,6 +27,7 @@ import {
 } from "./ui/compat";
 import { useNavigate, useParams } from "react-router-dom";
 import { splitFileName } from "../fileName.js";
+import Lightbox, { isViewableName } from "./Lightbox.jsx";
 import "../util.css";
 
 const SORT_OPTIONS = {
@@ -101,6 +102,7 @@ const Manage = () => {
   const [renameExt, setRenameExt] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [renameError, setRenameError] = useState("");
+  const [lightboxIndex, setLightboxIndex] = useState(null);
   const loadFilesRequestIdRef = React.useRef(0);
 
   React.useEffect(() => {
@@ -512,6 +514,24 @@ const Manage = () => {
     return copy;
   }, [files, sortBy]);
 
+  // Images/videos in the current display order — what the fullscreen viewer
+  // steps through. Non-media files open in a new tab instead.
+  const viewableFiles = useMemo(
+    () => sortedFiles.filter((item) => isViewableName(item.name)),
+    [sortedFiles]
+  );
+
+  const openFile = (item) => {
+    if (isViewableName(item.name)) {
+      const idx = viewableFiles.findIndex((entry) => entry.fullPath === item.fullPath);
+      if (idx !== -1) {
+        setLightboxIndex(idx);
+        return;
+      }
+    }
+    window.open(item.url);
+  };
+
   const normalizedMyTagItems = useMemo(() => {
     const unique = new Map();
 
@@ -886,7 +906,7 @@ const Manage = () => {
                 {sortedFiles.map((item) => (
                   <div
                     key={item.fullPath}
-                    onClick={() => window.open(item.url)}
+                    onClick={() => openFile(item)}
                     className="file-tile-card"
                   >
                     {/* actions menu — stop propagation so it doesn't trigger open */}
@@ -941,7 +961,7 @@ const Manage = () => {
                 {sortedFiles.map((item) => (
                   <div
                     key={item.fullPath}
-                    onClick={() => window.open(item.url)}
+                    onClick={() => openFile(item)}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -1266,6 +1286,15 @@ const Manage = () => {
             </Button>
           </Modal.Footer>
         </Modal>
+
+        {lightboxIndex !== null && viewableFiles[lightboxIndex] && (
+          <Lightbox
+            items={viewableFiles}
+            index={lightboxIndex}
+            onNavigate={setLightboxIndex}
+            onClose={() => setLightboxIndex(null)}
+          />
+        )}
       </div>
   );
 };
