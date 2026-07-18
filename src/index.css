@@ -3231,3 +3231,67 @@ ul {
     background: rgba(2, 6, 4, 0.5);
   }
 }
+
+/* ===== Rename field (base name + fixed extension suffix) ===== */
+
+.rename-field {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
+.rename-field .rename-ext {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  height: 44px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.rename-field > .form-control,
+.rename-field > input {
+  border-radius: 8px 0 0 8px !important;
+}
+
+.rename-field:has(.rename-ext) > .form-control,
+.rename-field:has(.rename-ext) > input {
+  border-right: none !important;
+}
+
+/* ===== Upload tile rename button ===== */
+
+.upload-file-card {
+  position: relative;
+}
+
+.upload-rename-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.upload-rename-btn:hover {
+  color: var(--primary);
+  border-color: rgba(200, 255, 114, 0.4);
+  background: var(--surface-2);
+}

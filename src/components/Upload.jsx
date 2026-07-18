@@ -11,6 +11,7 @@ import {
   FileVideo,
   FileAudio,
   UploadCloud,
+  Pencil,
 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -25,6 +26,7 @@ import {
   Spinner,
   Fade,
 } from "./ui/compat";
+import { splitFileName } from "../fileName.js";
 import "../util.css";
 
 const TAG_SORT_OPTIONS = {
@@ -78,6 +80,11 @@ const Upload = () => {
   const [deleteTagCandidate, setDeleteTagCandidate] = useState(null);
   const [deletingTag, setDeletingTag] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
+  const [renameItem, setRenameItem] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameExt, setRenameExt] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState("");
   const fileInputRef = useRef(null);
 
   React.useEffect(() => {
@@ -644,6 +651,58 @@ const Upload = () => {
     }
   };
 
+  const openRename = (item) => {
+    const { base, ext } = splitFileName(item.name);
+    setRenameItem(item);
+    setRenameValue(base);
+    setRenameExt(ext);
+    setRenameError("");
+  };
+
+  const closeRename = () => {
+    if (!renaming) {
+      setRenameItem(null);
+    }
+  };
+
+  const submitRename = async () => {
+    if (!renameItem || renaming) {
+      return;
+    }
+    const base = renameValue.trim();
+    if (!base) {
+      setRenameError("Name can't be empty");
+      return;
+    }
+    if (/[\\/]/.test(base)) {
+      setRenameError("Name can't contain slashes");
+      return;
+    }
+    const nextName = base + renameExt;
+    if (nextName === renameItem.name) {
+      setRenameItem(null);
+      return;
+    }
+
+    setRenaming(true);
+    setRenameError("");
+    try {
+      const { file: updated } = await api.renameFile(tagname, renameItem.name, nextName);
+      setUploadedItems((prev) =>
+        prev.map((entry) =>
+          entry.id === renameItem.id
+            ? { ...entry, name: updated.name, url: updated.url, thumbnailURL: updated.thumbnailURL }
+            : entry
+        )
+      );
+      setRenameItem(null);
+    } catch (error) {
+      setRenameError(error.message);
+    } finally {
+      setRenaming(false);
+    }
+  };
+
   return (
     <div>
       <div className="manage-tag-panel w-100" style={{ marginTop: "-12px" }}>
@@ -877,6 +936,21 @@ const Upload = () => {
                   style={{ textDecoration: "none", color: "var(--text)" }}
                 >
                   <div className="file-tile-card upload-file-card">
+                    {item.status === "done" && (
+                      <button
+                        type="button"
+                        className="upload-rename-btn"
+                        title="Rename"
+                        aria-label="Rename file"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          openRename(item);
+                        }}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    )}
                     <div className="file-tile-thumb">
                       {item.isImage && previewUrl ? (
                         <img
@@ -967,6 +1041,78 @@ const Upload = () => {
             })}
           </div>
         </div>
+
+        <Modal
+          show={Boolean(renameItem)}
+          onHide={closeRename}
+          size="sm"
+          aria-labelledby="upload-rename-modal-title"
+          centered
+          transition={Fade}
+          backdropTransition={Fade}
+        >
+          <Modal.Header
+            style={{ backgroundColor: "var(--surface)", color: "var(--primary)", border: "none" }}
+          >
+            <Modal.Title id="upload-rename-modal-title">
+              <b>Rename file</b>
+            </Modal.Title>
+          </Modal.Header>
+          <Modal.Body style={{ backgroundColor: "var(--surface)", color: "var(--text)", border: "none" }}>
+            <div className="rename-field">
+              <FormControl
+                autoFocus
+                value={renameValue}
+                onChange={(e) => {
+                  setRenameValue(e.target.value);
+                  if (renameError) setRenameError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitRename();
+                }}
+                placeholder="File name"
+                aria-label="New file name"
+                disabled={renaming}
+                style={{
+                  backgroundColor: "var(--surface-2)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text)",
+                  fontWeight: "600",
+                  height: "44px",
+                  fontSize: "16px",
+                }}
+              />
+              {renameExt && <span className="rename-ext">{renameExt}</span>}
+            </div>
+            <p style={{ margin: "0.5rem 0 0", fontSize: "0.78rem", color: "var(--muted)" }}>
+              The extension <code>{renameExt || "(none)"}</code> stays the same.
+            </p>
+            {renameError && (
+              <p style={{ margin: "0.5rem 0 0", fontSize: "0.82rem", color: "var(--danger)", fontWeight: 600 }}>
+                {renameError}
+              </p>
+            )}
+          </Modal.Body>
+          <Modal.Footer style={{ backgroundColor: "var(--surface)", border: "none" }}>
+            <Button
+              variant="secondary"
+              onClick={closeRename}
+              disabled={renaming}
+              style={{ fontWeight: "bold" }}
+            >
+              Cancel
+            </Button>
+            <Button
+              id="cusbtn"
+              onClick={submitRename}
+              disabled={renaming}
+              style={{ color: "var(--on-primary)", fontWeight: "bold" }}
+            >
+              {renaming ? "Renaming..." : "Rename"}
+            </Button>
+          </Modal.Footer>
+        </Modal>
+
         <Modal
           show={shows}
           onHide={handleClose}

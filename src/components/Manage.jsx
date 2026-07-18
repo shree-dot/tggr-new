@@ -26,6 +26,7 @@ import {
   Spinner,
 } from "./ui/compat";
 import { useNavigate, useParams } from "react-router-dom";
+import { splitFileName } from "../fileName.js";
 import "../util.css";
 
 const SORT_OPTIONS = {
@@ -97,6 +98,7 @@ const Manage = () => {
   const [menuOpenFor, setMenuOpenFor] = useState(null);
   const [renameCandidate, setRenameCandidate] = useState(null);
   const [renameValue, setRenameValue] = useState("");
+  const [renameExt, setRenameExt] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [renameError, setRenameError] = useState("");
   const loadFilesRequestIdRef = React.useRef(0);
@@ -431,8 +433,10 @@ const Manage = () => {
 
   const openRename = (item) => {
     setMenuOpenFor(null);
+    const { base, ext } = splitFileName(item.name);
     setRenameCandidate(item);
-    setRenameValue(item.name);
+    setRenameValue(base);
+    setRenameExt(ext);
     setRenameError("");
   };
 
@@ -446,15 +450,16 @@ const Manage = () => {
     if (!renameCandidate || renaming) {
       return;
     }
-    const nextName = renameValue.trim();
-    if (!nextName) {
+    const base = renameValue.trim();
+    if (!base) {
       setRenameError("Name can't be empty");
       return;
     }
-    if (/[\\/]/.test(nextName) || nextName.startsWith(".")) {
-      setRenameError("Name can't contain slashes or start with a dot");
+    if (/[\\/]/.test(base)) {
+      setRenameError("Name can't contain slashes");
       return;
     }
+    const nextName = base + renameExt;
     if (nextName === renameCandidate.name) {
       setRenameCandidate(null);
       return;
@@ -1207,30 +1212,33 @@ const Manage = () => {
           </Modal.Header>
 
           <Modal.Body style={{ backgroundColor: "var(--surface)", color: "var(--text)", border: "none" }}>
-            <FormControl
-              autoFocus
-              value={renameValue}
-              onChange={(e) => {
-                setRenameValue(e.target.value);
-                if (renameError) setRenameError("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submitRename();
-              }}
-              placeholder="File name"
-              aria-label="New file name"
-              disabled={renaming}
-              style={{
-                backgroundColor: "var(--surface-2)",
-                border: "1px solid var(--border)",
-                color: "var(--text)",
-                fontWeight: "600",
-                height: "44px",
-                fontSize: "16px",
-              }}
-            />
+            <div className="rename-field">
+              <FormControl
+                autoFocus
+                value={renameValue}
+                onChange={(e) => {
+                  setRenameValue(e.target.value);
+                  if (renameError) setRenameError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitRename();
+                }}
+                placeholder="File name"
+                aria-label="New file name"
+                disabled={renaming}
+                style={{
+                  backgroundColor: "var(--surface-2)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text)",
+                  fontWeight: "600",
+                  height: "44px",
+                  fontSize: "16px",
+                }}
+              />
+              {renameExt && <span className="rename-ext">{renameExt}</span>}
+            </div>
             <p style={{ margin: "0.5rem 0 0", fontSize: "0.78rem", color: "var(--muted)" }}>
-              Keep the extension (e.g. <code>.jpg</code>) to preserve the file's type and preview.
+              The extension <code>{renameExt || "(none)"}</code> stays the same.
             </p>
             {renameError && (
               <p style={{ margin: "0.5rem 0 0", fontSize: "0.82rem", color: "var(--danger)", fontWeight: 600 }}>

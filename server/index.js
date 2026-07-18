@@ -713,14 +713,23 @@ app.patch("/api/tags/:name/files/:filename", requireAuth, (req, res) => {
   if (!tag) {
     return res.status(404).json({ error: "Tag not found" });
   }
-  if (tag.owner_uid !== req.user.uid) {
-    return res.status(403).json({ error: "Only the owner can rename files" });
-  }
 
   const oldName = req.params.filename;
   const newName = (req.body?.newName || "").trim();
   if (!isSafeFilename(oldName) || !isSafeFilename(newName)) {
     return res.status(400).json({ error: "Invalid filename" });
+  }
+
+  // The tag owner may rename any file; anyone else may rename only files they
+  // uploaded themselves (and still have access to the tag).
+  const fileRow = db
+    .prepare("SELECT * FROM files WHERE tag_id = ? AND filename = ?")
+    .get(tag.id, oldName);
+  const isOwner = tag.owner_uid === req.user.uid;
+  const isUploader =
+    fileRow && fileRow.uploaded_by_uid === req.user.uid && canViewTag(tag, req.user.uid);
+  if (!isOwner && !isUploader) {
+    return res.status(403).json({ error: "You can only rename files you uploaded" });
   }
 
   const fromPath = path.join(tagDir(tag.name), oldName);
