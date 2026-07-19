@@ -21,6 +21,6 @@ services:
       # (APIs & Services -> Credentials -> OAuth client ID -> Web application).
       # Leave unset to hide the Google button.
       GOOGLE_CLIENT_ID: "568031962791-u5o7ah3jutsriae5e51jir1ecd5jgtgs.apps.googleusercontent.com"
-      # Set to "false" once everyone has an account to block new registrations
-      # (imported-account claiming still works).
-      ALLOW_SIGNUP: "true"
+      # Closed by default: only existing accounts can sign in. Flip to "true"
+      # temporarily when you need to onboard a new person, then set back.
+      ALLOW_SIGNUP: "false"

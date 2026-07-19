@@ -3,7 +3,9 @@
  *
  * Usage:
  *   1. Firebase console -> Project settings -> Service accounts -> Generate new private key
- *   2. cd server && npm install firebase-admin
+ *   2. cd server && npm install firebase-admin   (not a runtime dependency;
+ *      installed only for this one-time migration to avoid shipping its
+ *      transitive vulnerabilities in the running server)
  *   3. DATA_DIR=./data node migrate-from-firebase.js /path/to/serviceAccountKey.json
  *
  * Safe to re-run: rows are upserted and existing files are skipped.

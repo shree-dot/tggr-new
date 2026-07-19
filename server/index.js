@@ -213,6 +213,19 @@ const quotaViolation = (user, incomingBytes) => {
   return `Storage limit reached: ${gb(used)} GB used of your ${gb(user.storage_limit_bytes)} GB limit`;
 };
 
+// Availability guards: keep headroom on the data volume and bound the size of
+// a single chunk (client uses 8MB) so no request can write unbounded data.
+const MIN_FREE_BYTES = Number(process.env.MIN_FREE_BYTES || 1024 * 1024 * 1024); // 1 GB
+const MAX_CHUNK_BYTES = 16 * 1024 * 1024;
+const freeSpaceLow = (incomingBytes = 0) => {
+  try {
+    const s = fs.statfsSync(DATA_DIR);
+    return s.bavail * s.bsize - incomingBytes < MIN_FREE_BYTES;
+  } catch {
+    return false; // platform can't report free space — don't block
+  }
+};
+
 const canViewTag = (tag, uid) => {
   if (tag.owner_uid === uid) return true;
   if (tag.access !== "2") return true;
@@ -703,6 +716,10 @@ app.post("/api/tags/:name/files", requireAuth, attachVault, upload.single("file"
     cleanup();
     return res.status(413).json({ error: quotaError });
   }
+  if (freeSpaceLow()) {
+    cleanup();
+    return res.status(507).json({ error: "Server storage is full" });
+  }
 
   fs.mkdirSync(tagDir(tag), { recursive: true });
   fs.renameSync(req.file.path, path.join(tagDir(tag), filename));
@@ -742,20 +759,39 @@ app.post("/api/tags/:name/uploads/:uploadId/:index(\\d+)", requireAuth, (req, re
     return res.status(400).json({ error: "Invalid chunk request" });
   }
 
+  const declared = Number(req.headers["content-length"] || 0);
+  if (declared > MAX_CHUNK_BYTES) {
+    return res.status(413).json({ error: "Chunk too large" });
+  }
+  if (freeSpaceLow(MAX_CHUNK_BYTES)) {
+    return res.status(507).json({ error: "Server storage is full" });
+  }
+
   const dir = path.join(UPLOADS_TMP, uploadId);
   fs.mkdirSync(dir, { recursive: true });
-  const out = fs.createWriteStream(path.join(dir, String(idx)));
+  const dest = path.join(dir, String(idx));
+  const out = fs.createWriteStream(dest);
 
   let failed = false;
-  const fail = () => {
+  let written = 0;
+  const fail = (code, msg) => {
     if (failed) return;
     failed = true;
     out.destroy();
-    res.status(500).json({ error: "Chunk write failed" });
+    fs.rmSync(dest, { force: true });
+    if (!res.headersSent) res.status(code).json({ error: msg });
   };
 
-  req.on("error", fail);
-  out.on("error", fail);
+  // Enforce the cap on actual bytes too, in case Content-Length lied.
+  req.on("data", (chunk) => {
+    written += chunk.length;
+    if (written > MAX_CHUNK_BYTES) {
+      req.destroy();
+      fail(413, "Chunk too large");
+    }
+  });
+  req.on("error", () => fail(500, "Chunk write failed"));
+  out.on("error", () => fail(500, "Chunk write failed"));
   out.on("finish", () => {
     if (!failed) res.json({ ok: true });
   });
@@ -1086,9 +1122,12 @@ const serveTagFile = (req, res, isThumb) => {
   if (!fs.existsSync(filePath)) {
     return res.status(404).send("Not found");
   }
+  // Private files must never be cached by shared caches (Cloudflare, proxies) —
+  // caching would let a request be served without re-running the auth check.
+  res.setHeader("Cache-Control", "private, no-store");
   // HTML-ish uploads must not render on this origin (stored XSS); force download.
   const ext = path.extname(filename).toLowerCase();
-  if ([".html", ".htm", ".xhtml", ".shtml", ".svg", ".xml"].includes(ext)) {
+  if ([".html", ".htm", ".xhtml", ".shtml", ".svg", ".xml", ".mhtml", ".xht"].includes(ext)) {
     res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
   }
   res.sendFile(filePath);
