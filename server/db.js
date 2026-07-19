@@ -68,6 +68,24 @@ try {
   // column already exists
 }
 
+// Hidden-tags vault: per-user vault password, per-tag hidden flag, and the
+// obfuscated on-disk directory name used while a tag is hidden.
+try {
+  db.exec("ALTER TABLE users ADD COLUMN vault_pass_hash TEXT");
+} catch {
+  // column already exists
+}
+try {
+  db.exec("ALTER TABLE tags ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
+} catch {
+  // column already exists
+}
+try {
+  db.exec("ALTER TABLE tags ADD COLUMN store_dir TEXT");
+} catch {
+  // column already exists
+}
+
 // Admin/user-management columns: access revocation + per-user storage quota.
 try {
   db.exec("ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0");

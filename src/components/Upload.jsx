@@ -96,7 +96,7 @@ const Upload = () => {
       .catch((error) => console.log("User load error:", error));
 
     api
-      .myTags()
+      .myTags(true) // hidden tags stay valid upload targets
       .then(({ tags }) => {
         setMyTags(tags);
         setLoading(false);

@@ -13,6 +13,9 @@ import {
   FileAudio,
   MoreVertical,
   Pencil,
+  EyeOff,
+  Eye,
+  Lock,
 } from "lucide-react";
 import {
   Alert,
@@ -103,6 +106,18 @@ const Manage = () => {
   const [renaming, setRenaming] = useState(false);
   const [renameError, setRenameError] = useState("");
   const [lightboxIndex, setLightboxIndex] = useState(null);
+  // Hidden-tags vault. The token itself lives in api.js memory only.
+  const [vaultModal, setVaultModal] = useState(null); // null | "setup" | "unlock"
+  const [vaultPassword, setVaultPassword] = useState("");
+  const [vaultPassword2, setVaultPassword2] = useState("");
+  const [vaultError, setVaultError] = useState("");
+  const [vaultBusy, setVaultBusy] = useState(false);
+  const [vaultOpen, setVaultOpen] = useState(false);
+  const [hiddenTags, setHiddenTags] = useState([]);
+  // What to do once the vault unlocks: null = show the hidden-tags panel,
+  // {type:"hide"|"open", name} = hide or open that tag.
+  const [pendingAction, setPendingAction] = useState(null);
+  const [currentTagHidden, setCurrentTagHidden] = useState(false);
   const loadFilesRequestIdRef = React.useRef(0);
 
   React.useEffect(() => {
@@ -249,7 +264,7 @@ const Manage = () => {
     return data.color;
   };
 
-  const loadFiles = async (tag) => {
+  const loadFiles = async (tag, isHidden = false) => {
     const requestId = ++loadFilesRequestIdRef.current;
     setFiles([]);
     setLoadingFiles(true);
@@ -268,8 +283,18 @@ const Manage = () => {
         return;
       }
 
+      // Hidden-tag media can't send the vault header from <img>/<a>, so the
+      // short-lived token rides along as a query param on those URLs.
+      const mapped = isHidden
+        ? loaded.map((f) => ({
+            ...f,
+            url: api.withVaultParam(f.url),
+            thumbnailURL: f.thumbnailURL ? api.withVaultParam(f.thumbnailURL) : "",
+          }))
+        : loaded;
+
       setnEmpty("block");
-      setFiles(loaded);
+      setFiles(mapped);
       setLoadingFiles(false);
     } catch (error) {
       console.log("Error loading files:", error);
@@ -305,6 +330,20 @@ const Manage = () => {
         return;
       }
 
+      // Hidden tag whose contents are locked: the owner gets an unlock
+      // prompt that re-resolves on success; anyone else is treated as
+      // having no viewing permission (uploads still work elsewhere).
+      if (info.contentLocked) {
+        if (info.isOwner) {
+          startVault({ type: "open", name });
+        } else {
+          setNonesx("block");
+          setMones("none");
+          setShow("none");
+        }
+        return;
+      }
+
       setMones("block");
       setNones("none");
       setNonesx("none");
@@ -312,7 +351,8 @@ const Manage = () => {
       setDescription(info.desc || "");
       setOwnerUid(info.owner.uid);
       setOwner(info.isOwner ? `${info.owner.name} ( You )` : info.owner.name);
-      loadFiles(name);
+      setCurrentTagHidden(!!info.hidden);
+      loadFiles(name, !!info.hidden);
     } catch (error) {
       console.log("Error resolving tag:", error);
       setPending("none");
@@ -322,6 +362,13 @@ const Manage = () => {
   const checkBase = () => {
     const cleanTag = (tagname || "").trim();
     if (!cleanTag) {
+      return;
+    }
+
+    // Undocumented on purpose: typing #vault opens the hidden-tags vault.
+    if (cleanTag.toLowerCase() === "#vault") {
+      setTagName("");
+      startVault();
       return;
     }
 
@@ -341,6 +388,135 @@ const Manage = () => {
     canonicalizeTagRoute(name);
     resolveTag(name);
     setIsTagSidebarOpen(false);
+  };
+
+  /* ---- hidden-tags vault ---- */
+
+  const openVaultPanel = async () => {
+    try {
+      const { tags } = await api.vaultTags();
+      setHiddenTags(tags);
+      setVaultOpen(true);
+    } catch (error) {
+      if (error.status === 401) {
+        api.setVaultToken(null);
+        setVaultModal("unlock");
+      } else {
+        console.log("Vault error:", error);
+      }
+    }
+  };
+
+  const performHide = async (name) => {
+    try {
+      await api.hideTag(name);
+      setMyTags((tags) =>
+        tags.filter((t) => (typeof t === "string" ? t : t.name) !== name)
+      );
+      setFavoriteTags((tags) => tags.filter((t) => t !== name));
+      if (tagname === name) {
+        resetTagState();
+        setPending("none");
+        setLoadingFiles(false);
+        setTagName("");
+        navigate("/manage");
+      }
+    } catch (error) {
+      alert(error.message);
+    }
+  };
+
+  const runVaultAction = async (action) => {
+    if (action?.type === "hide") {
+      await performHide(action.name);
+    } else if (action?.type === "open") {
+      await resolveTag(action.name);
+    } else {
+      await openVaultPanel();
+    }
+  };
+
+  // Entry point for the #vault trigger (action = null → panel), the per-tag
+  // hide button, and unlock-to-view of a locked tag. Prompts for
+  // setup/unlock first when needed.
+  const startVault = async (action = null) => {
+    setPendingAction(action);
+    setVaultPassword("");
+    setVaultPassword2("");
+    setVaultError("");
+
+    if (api.hasVaultToken()) {
+      setPendingAction(null);
+      await runVaultAction(action);
+      return;
+    }
+
+    try {
+      const { configured } = await api.vaultStatus();
+      setVaultModal(configured ? "unlock" : "setup");
+    } catch (error) {
+      console.log("Vault status error:", error);
+    }
+  };
+
+  const submitVault = async () => {
+    if (vaultBusy) return;
+    setVaultError("");
+
+    if (vaultModal === "setup") {
+      if (vaultPassword.length < 6) {
+        setVaultError("Use at least 6 characters");
+        return;
+      }
+      if (vaultPassword !== vaultPassword2) {
+        setVaultError("Passwords don't match");
+        return;
+      }
+    }
+
+    setVaultBusy(true);
+    try {
+      const { vaultToken } =
+        vaultModal === "setup"
+          ? await api.vaultSetup(vaultPassword)
+          : await api.vaultUnlock(vaultPassword);
+      api.setVaultToken(vaultToken);
+      setVaultModal(null);
+      setVaultPassword("");
+      setVaultPassword2("");
+
+      const action = pendingAction;
+      setPendingAction(null);
+      await runVaultAction(action);
+    } catch (error) {
+      setVaultError(error.message);
+    } finally {
+      setVaultBusy(false);
+    }
+  };
+
+  // Deliberately no route change: hidden tag names never enter the URL bar
+  // or browser history.
+  const openHiddenTag = (name) => {
+    setVaultOpen(false);
+    setTagName(name);
+    resolveTag(name);
+  };
+
+  const unhideHiddenTag = async (name) => {
+    try {
+      await api.unhideTag(name);
+      setHiddenTags((prev) => prev.filter((t) => t.name !== name));
+      api
+        .myTags()
+        .then(({ tags }) => setMyTags(tags))
+        .catch(() => {});
+      if (tagname === name) {
+        setCurrentTagHidden(false);
+      }
+    } catch (error) {
+      alert(error.message);
+    }
   };
 
   const toggleFavorite = async (name) => {
@@ -475,9 +651,16 @@ const Manage = () => {
         renameCandidate.name,
         nextName
       );
+      const patched = currentTagHidden
+        ? {
+            ...updated,
+            url: api.withVaultParam(updated.url),
+            thumbnailURL: updated.thumbnailURL ? api.withVaultParam(updated.thumbnailURL) : "",
+          }
+        : updated;
       setFiles((prev) =>
         prev.map((entry) =>
-          entry.fullPath === renameCandidate.fullPath ? { ...entry, ...updated } : entry
+          entry.fullPath === renameCandidate.fullPath ? { ...entry, ...patched } : entry
         )
       );
       setRenameCandidate(null);
@@ -780,7 +963,14 @@ const Manage = () => {
               <div className="tag-details-modern">
                 <div className="tag-details-item">
                   <div className="tag-details-label">Tag</div>
-                  <div className="tag-details-value">{tagname}</div>
+                  <div className="tag-details-value">
+                    {tagname}
+                    {currentTagHidden && (
+                      <span className="vault-chip">
+                        <Lock size={10} /> hidden
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="tag-details-item">
                   <div className="tag-details-label">Owner</div>
@@ -1073,6 +1263,16 @@ const Manage = () => {
                 <button
                   type="button"
                   className="manage-tag-delete"
+                  onClick={() => startVault({ type: "hide", name })}
+                  title="Hide tag"
+                  aria-label={`Hide ${name}`}
+                  style={{ color: "var(--muted)" }}
+                >
+                  <EyeOff size={12} />
+                </button>
+                <button
+                  type="button"
+                  className="manage-tag-delete"
                   onClick={() => openDeleteTagModal(name)}
                   title="Delete tag"
                   aria-label={`Delete ${name}`}
@@ -1285,6 +1485,157 @@ const Manage = () => {
               {renaming ? "Renaming..." : "Rename"}
             </Button>
           </Modal.Footer>
+        </Modal>
+
+        <Modal
+          show={Boolean(vaultModal)}
+          onHide={() => !vaultBusy && setVaultModal(null)}
+          size="sm"
+          centered
+          transition={Fade}
+          backdropTransition={Fade}
+        >
+          <Modal.Header
+            style={{ backgroundColor: "var(--surface)", color: "var(--primary)", border: "none" }}
+          >
+            <Modal.Title>
+              <b style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}>
+                <Lock size={16} />
+                {vaultModal === "setup" ? "Create vault password" : "Unlock vault"}
+              </b>
+            </Modal.Title>
+          </Modal.Header>
+          <Modal.Body style={{ backgroundColor: "var(--surface)", color: "var(--text)", border: "none" }}>
+            {vaultModal === "setup" && (
+              <p style={{ marginTop: 0, fontSize: "0.82rem", color: "var(--muted)" }}>
+                This password protects your hidden tags. It cannot be recovered
+                if forgotten — hidden tags would need manual recovery on the
+                server.
+              </p>
+            )}
+            <FormControl
+              autoFocus
+              type="password"
+              value={vaultPassword}
+              onChange={(e) => {
+                setVaultPassword(e.target.value);
+                if (vaultError) setVaultError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && vaultModal !== "setup") submitVault();
+              }}
+              placeholder="Vault password"
+              aria-label="Vault password"
+              disabled={vaultBusy}
+              style={{
+                backgroundColor: "var(--surface-2)",
+                border: "1px solid var(--border)",
+                color: "var(--text)",
+                fontWeight: "600",
+                height: "44px",
+                fontSize: "16px",
+              }}
+            />
+            {vaultModal === "setup" && (
+              <FormControl
+                type="password"
+                value={vaultPassword2}
+                onChange={(e) => {
+                  setVaultPassword2(e.target.value);
+                  if (vaultError) setVaultError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitVault();
+                }}
+                placeholder="Repeat password"
+                aria-label="Repeat vault password"
+                disabled={vaultBusy}
+                style={{
+                  marginTop: "0.6rem",
+                  backgroundColor: "var(--surface-2)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text)",
+                  fontWeight: "600",
+                  height: "44px",
+                  fontSize: "16px",
+                }}
+              />
+            )}
+            {vaultError && (
+              <p style={{ margin: "0.6rem 0 0", fontSize: "0.82rem", color: "var(--danger)", fontWeight: 600 }}>
+                {vaultError}
+              </p>
+            )}
+          </Modal.Body>
+          <Modal.Footer style={{ backgroundColor: "var(--surface)", border: "none" }}>
+            <Button
+              variant="secondary"
+              onClick={() => setVaultModal(null)}
+              disabled={vaultBusy}
+              style={{ fontWeight: "bold" }}
+            >
+              Cancel
+            </Button>
+            <Button
+              id="cusbtn"
+              onClick={submitVault}
+              disabled={vaultBusy}
+              style={{ color: "var(--on-primary)", fontWeight: "bold" }}
+            >
+              {vaultBusy ? "Working..." : vaultModal === "setup" ? "Create & Unlock" : "Unlock"}
+            </Button>
+          </Modal.Footer>
+        </Modal>
+
+        <Modal
+          show={vaultOpen}
+          onHide={() => setVaultOpen(false)}
+          size="md"
+          centered
+          transition={Fade}
+          backdropTransition={Fade}
+        >
+          <Modal.Header
+            style={{ backgroundColor: "var(--surface)", color: "var(--primary)", border: "none" }}
+          >
+            <Modal.Title>
+              <b style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}>
+                <EyeOff size={16} /> Hidden tags
+              </b>
+            </Modal.Title>
+          </Modal.Header>
+          <Modal.Body style={{ backgroundColor: "var(--surface)", color: "var(--text)", border: "none" }}>
+            {hiddenTags.length === 0 && (
+              <p style={{ margin: 0, color: "var(--muted)", fontSize: "0.9rem" }}>
+                No hidden tags. Use the <EyeOff size={12} style={{ verticalAlign: "-2px" }} /> icon
+                next to a tag in the sidebar to hide it.
+              </p>
+            )}
+            {hiddenTags.map((t) => (
+              <div key={t.name} className="vault-row">
+                <div className="vault-row-meta">
+                  <span className="vault-row-name">{t.name}</span>
+                  <span className="vault-row-sub">
+                    {t.fileCount} file{t.fileCount !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                <button type="button" className="vault-row-btn" onClick={() => openHiddenTag(t.name)}>
+                  Open
+                </button>
+                <button
+                  type="button"
+                  className="vault-row-btn vault-row-unhide"
+                  onClick={() => unhideHiddenTag(t.name)}
+                  title="Make this tag visible again"
+                >
+                  <Eye size={12} /> Unhide
+                </button>
+              </div>
+            ))}
+            <p style={{ margin: "0.9rem 0 0", color: "var(--muted)", fontSize: "0.74rem" }}>
+              Vault locks automatically after 15 minutes or when you close the tab.
+            </p>
+          </Modal.Body>
         </Modal>
 
         {lightboxIndex !== null && viewableFiles[lightboxIndex] && (

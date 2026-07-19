@@ -1,6 +1,7 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import multer from "multer";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import fs from "fs";
@@ -87,8 +88,21 @@ const isSafeFilename = (name) =>
   !name.includes("/") &&
   !name.includes("\\");
 
-const tagDir = (tagName) => path.join(FILES_DIR, tagName);
-const thumbsDir = (tagName) => path.join(tagDir(tagName), ".thumbs");
+// Hidden tags live outside files/ under a random directory name, so the tag
+// name and its contents' location aren't visible when browsing the NAS.
+const VAULT_DIR = path.join(DATA_DIR, ".vault");
+fs.mkdirSync(VAULT_DIR, { recursive: true });
+
+// Accepts a tag row (preferred) or a plain name string for pre-insert paths.
+const tagDir = (tag) => {
+  if (typeof tag === "string") {
+    return path.join(FILES_DIR, tag);
+  }
+  return tag.hidden && tag.store_dir
+    ? path.join(VAULT_DIR, tag.store_dir)
+    : path.join(FILES_DIR, tag.name);
+};
+const thumbsDir = (tag) => path.join(tagDir(tag), ".thumbs");
 
 const publicUser = (row) => ({
   uid: row.uid,
@@ -142,6 +156,46 @@ const requireAdmin = (req, res, next) => {
     return res.status(403).json({ error: "Admin access required" });
   }
   next();
+};
+
+/* ---------- hidden-tags vault helpers ---------- */
+
+const VAULT_TOKEN_TTL = "15m";
+
+const signVaultToken = (uid) =>
+  jwt.sign({ uid, vault: true }, JWT_SECRET, { expiresIn: VAULT_TOKEN_TTL });
+
+// Non-fatal: sets req.vaultOk if a valid vault token for THIS user is present
+// (header for API calls, ?vt= query for <img>/<a> file requests).
+const attachVault = (req, res, next) => {
+  req.vaultOk = false;
+  const raw = req.headers["x-vault-token"] || req.query.vt || "";
+  if (raw) {
+    try {
+      const payload = jwt.verify(raw, JWT_SECRET);
+      if (payload.vault === true && payload.uid === req.user.uid) {
+        req.vaultOk = true;
+      }
+    } catch {
+      // invalid/expired vault token — treated as absent
+    }
+  }
+  next();
+};
+
+// A hidden tag is only visible/usable by its owner holding a live vault token.
+const hiddenBlocked = (tag, req) =>
+  !!tag.hidden && !(tag.owner_uid === req.user.uid && req.vaultOk);
+
+const removeTagFromAllFavorites = (tagName) => {
+  const users = db.prepare("SELECT id, favorite_tags FROM users").all();
+  const update = db.prepare("UPDATE users SET favorite_tags = ? WHERE id = ?");
+  for (const u of users) {
+    const favs = parseJson(u.favorite_tags, []);
+    if (favs.includes(tagName)) {
+      update.run(JSON.stringify(favs.filter((f) => f !== tagName)), u.id);
+    }
+  }
 };
 
 // Bytes attributed to a user across all tags (their uploads, wherever they live).
@@ -271,6 +325,125 @@ app.get("/api/shortcut/tags", requireAuth, (req, res) => {
   res.json({ tags: names });
 });
 
+/* ---------- hidden-tags vault ---------- */
+
+app.get("/api/vault/status", requireAuth, (req, res) => {
+  res.json({ configured: !!req.user.vault_pass_hash });
+});
+
+app.post("/api/vault/setup", requireAuth, authRateLimit, async (req, res) => {
+  if (req.user.vault_pass_hash) {
+    return res.status(409).json({ error: "Vault password is already set" });
+  }
+  const { password } = req.body || {};
+  if (!password || password.length < 6) {
+    return res.status(400).json({ error: "Vault password must be at least 6 characters" });
+  }
+  const hash = await bcrypt.hash(password, 10);
+  db.prepare("UPDATE users SET vault_pass_hash = ? WHERE uid = ?").run(hash, req.user.uid);
+  res.json({ vaultToken: signVaultToken(req.user.uid) });
+});
+
+app.post("/api/vault/unlock", requireAuth, authRateLimit, async (req, res) => {
+  if (!req.user.vault_pass_hash) {
+    return res.status(409).json({ error: "Vault is not set up yet" });
+  }
+  const ok = await bcrypt.compare(req.body?.password || "", req.user.vault_pass_hash);
+  if (!ok) {
+    return res.status(401).json({ error: "Incorrect vault password" });
+  }
+  res.json({ vaultToken: signVaultToken(req.user.uid) });
+});
+
+app.get("/api/vault/tags", requireAuth, attachVault, (req, res) => {
+  if (!req.vaultOk) {
+    return res.status(401).json({ error: "Vault is locked" });
+  }
+  const rows = db
+    .prepare(
+      `SELECT t.name, t.created_at, COUNT(f.id) AS file_count
+       FROM tags t LEFT JOIN files f ON f.tag_id = t.id
+       WHERE t.owner_uid = ? AND t.hidden = 1
+       GROUP BY t.id ORDER BY t.name`
+    )
+    .all(req.user.uid);
+  res.json({
+    tags: rows.map((r) => ({ name: r.name, createdAt: r.created_at, fileCount: r.file_count })),
+  });
+});
+
+app.post("/api/vault/hide", requireAuth, attachVault, (req, res) => {
+  if (!req.vaultOk) {
+    return res.status(401).json({ error: "Vault is locked" });
+  }
+  const tag = getTagByName.get(req.body?.tag || "");
+  if (!tag || tag.owner_uid !== req.user.uid) {
+    return res.status(404).json({ error: "Tag not found" });
+  }
+  if (tag.hidden) {
+    return res.status(409).json({ error: "Tag is already hidden" });
+  }
+
+  const storeId = crypto.randomBytes(12).toString("hex");
+  const from = path.join(FILES_DIR, tag.name);
+  const to = path.join(VAULT_DIR, storeId);
+
+  // A tag can exist with no directory yet (nothing uploaded) — create it so
+  // hide/unhide stays symmetric.
+  if (!fs.existsSync(from)) {
+    fs.mkdirSync(from, { recursive: true });
+  }
+
+  fs.renameSync(from, to); // same volume: atomic
+  try {
+    db.prepare("UPDATE tags SET hidden = 1, store_dir = ? WHERE id = ?").run(storeId, tag.id);
+  } catch (err) {
+    fs.renameSync(to, from); // roll the move back if the DB write fails
+    throw err;
+  }
+
+  // The name must not linger anywhere visible.
+  removeTagFromAllFavorites(tag.name);
+  db.prepare("DELETE FROM access_requests WHERE tag_id = ?").run(tag.id);
+
+  res.json({ ok: true });
+});
+
+app.post("/api/vault/unhide", requireAuth, attachVault, (req, res) => {
+  if (!req.vaultOk) {
+    return res.status(401).json({ error: "Vault is locked" });
+  }
+  const tag = getTagByName.get(req.body?.tag || "");
+  if (!tag || tag.owner_uid !== req.user.uid) {
+    return res.status(404).json({ error: "Tag not found" });
+  }
+  if (!tag.hidden) {
+    return res.status(409).json({ error: "Tag is not hidden" });
+  }
+
+  const from = path.join(VAULT_DIR, tag.store_dir || "");
+  const to = path.join(FILES_DIR, tag.name);
+  if (fs.existsSync(to)) {
+    return res
+      .status(409)
+      .json({ error: `A folder named "${tag.name}" already exists in storage — resolve it on the server first` });
+  }
+
+  if (fs.existsSync(from)) {
+    fs.renameSync(from, to);
+  } else {
+    fs.mkdirSync(to, { recursive: true });
+  }
+  try {
+    db.prepare("UPDATE tags SET hidden = 0, store_dir = NULL WHERE id = ?").run(tag.id);
+  } catch (err) {
+    if (fs.existsSync(to)) fs.renameSync(to, from);
+    throw err;
+  }
+
+  res.json({ ok: true });
+});
+
 /* ---------- favorites ---------- */
 
 app.put("/api/me/favorites", requireAuth, (req, res) => {
@@ -293,9 +466,14 @@ app.put("/api/me/favorites", requireAuth, (req, res) => {
 
 /* ---------- tags ---------- */
 
+// Hidden tags are excluded by default (Manage's main list). Upload surfaces
+// pass include_hidden=1 so hidden tags remain easy upload targets.
 app.get("/api/tags/mine", requireAuth, (req, res) => {
+  const includeHidden = req.query.include_hidden === "1";
   const rows = db
-    .prepare("SELECT * FROM tags WHERE owner_uid = ? ORDER BY last_activity_at DESC")
+    .prepare(
+      `SELECT * FROM tags WHERE owner_uid = ? ${includeHidden ? "" : "AND hidden = 0"} ORDER BY last_activity_at DESC`
+    )
     .all(req.user.uid);
   res.json({
     tags: rows.map((row) => ({
@@ -303,6 +481,7 @@ app.get("/api/tags/mine", requireAuth, (req, res) => {
       name: row.name,
       date: row.created_at,
       lastActivityAt: row.last_activity_at,
+      hidden: !!row.hidden,
     })),
   });
 });
@@ -325,7 +504,7 @@ app.post("/api/tags", requireAuth, (req, res) => {
   res.json({ ok: true, name: clean });
 });
 
-app.get("/api/tags/:name", requireAuth, (req, res) => {
+app.get("/api/tags/:name", requireAuth, attachVault, (req, res) => {
   const tag = getTagByName.get(req.params.name);
   if (!tag) {
     return res.json({ exists: false });
@@ -337,44 +516,43 @@ app.get("/api/tags/:name", requireAuth, (req, res) => {
     .get(tag.id, req.user.uid);
   res.json({
     exists: true,
-    allowed,
+    allowed, // upload permission per the tag's normal access rules
     requested,
     name: tag.name,
     desc: tag.desc,
     access: tag.access,
+    hidden: !!tag.hidden,
+    // Viewing the contents of a hidden tag needs the owner's vault token;
+    // uploading does not.
+    contentLocked: hiddenBlocked(tag, req),
     owner: { uid: tag.owner_uid, name: ownerRow ? ownerRow.name : "Unknown" },
     isOwner: tag.owner_uid === req.user.uid,
   });
 });
 
-app.delete("/api/tags/:name", requireAuth, (req, res) => {
+app.delete("/api/tags/:name", requireAuth, attachVault, (req, res) => {
   const tag = getTagByName.get(req.params.name);
-  if (!tag) {
+  if (!tag || hiddenBlocked(tag, req)) {
     return res.status(404).json({ error: "Tag not found" });
   }
   if (tag.owner_uid !== req.user.uid) {
     return res.status(403).json({ error: "Only the owner can delete a tag" });
   }
-  fs.rmSync(tagDir(tag.name), { recursive: true, force: true });
+  fs.rmSync(tagDir(tag), { recursive: true, force: true });
   db.prepare("DELETE FROM tags WHERE id = ?").run(tag.id);
-  // Remove the tag from every user's favorites.
-  const users = db.prepare("SELECT id, favorite_tags FROM users").all();
-  const updateFavs = db.prepare("UPDATE users SET favorite_tags = ? WHERE id = ?");
-  for (const u of users) {
-    const favs = parseJson(u.favorite_tags, []);
-    if (favs.includes(tag.name)) {
-      updateFavs.run(JSON.stringify(favs.filter((f) => f !== tag.name)), u.id);
-    }
-  }
+  removeTagFromAllFavorites(tag.name);
   res.json({ ok: true });
 });
 
 /* ---------- access requests ---------- */
 
-app.post("/api/tags/:name/request", requireAuth, (req, res) => {
+app.post("/api/tags/:name/request", requireAuth, attachVault, (req, res) => {
   const tag = getTagByName.get(req.params.name);
   if (!tag) {
     return res.status(404).json({ error: "Tag not found" });
+  }
+  if (tag.hidden) {
+    return res.status(403).json({ error: "Access requests are disabled for this tag" });
   }
   if (canViewTag(tag, req.user.uid)) {
     return res.json({ ok: true, alreadyAllowed: true });
@@ -396,7 +574,7 @@ app.get("/api/requests", requireAuth, (req, res) => {
     .prepare(
       `SELECT r.id, r.requester_uid, r.message, t.name AS tag
        FROM access_requests r JOIN tags t ON t.id = r.tag_id
-       WHERE t.owner_uid = ? ORDER BY r.created_at DESC`
+       WHERE t.owner_uid = ? AND t.hidden = 0 ORDER BY r.created_at DESC`
     )
     .all(req.user.uid);
   res.json({
@@ -437,9 +615,15 @@ app.post("/api/requests/:id/resolve", requireAuth, (req, res) => {
 
 /* ---------- files ---------- */
 
-const loadTagWithAccess = (req, res) => {
+// Hidden tags stay fully uploadable (share sheets, Upload page) — only
+// viewing their contents is vault-gated. Pass forUpload: true on write paths.
+const loadTagWithAccess = (req, res, { forUpload = false } = {}) => {
   const tag = getTagByName.get(req.params.name);
   if (!tag) {
+    res.status(404).json({ error: "Tag not found" });
+    return null;
+  }
+  if (!forUpload && hiddenBlocked(tag, req)) {
     res.status(404).json({ error: "Tag not found" });
     return null;
   }
@@ -454,7 +638,7 @@ const loadTagWithAccess = (req, res) => {
 // manually (e.g. dropped in over SMB or restored from a Firebase download)
 // show up without any import step.
 const syncTagDirWithDb = (tag) => {
-  const dir = tagDir(tag.name);
+  const dir = tagDir(tag);
   if (!fs.existsSync(dir)) return;
 
   const onDisk = new Set();
@@ -468,7 +652,7 @@ const syncTagDirWithDb = (tag) => {
     if (existing) continue;
 
     const stat = fs.statSync(path.join(dir, entry.name));
-    const hasThumb = fs.existsSync(path.join(thumbsDir(tag.name), `${entry.name}.webp`));
+    const hasThumb = fs.existsSync(path.join(thumbsDir(tag), `${entry.name}.webp`));
     db.prepare(
       `INSERT INTO files (tag_id, filename, size, uploaded_by, uploaded_by_uid, has_thumbnail, uploaded_at)
        VALUES (?, ?, ?, 'Unknown', '', ?, ?)`
@@ -484,7 +668,7 @@ const syncTagDirWithDb = (tag) => {
   }
 };
 
-app.get("/api/tags/:name/files", requireAuth, (req, res) => {
+app.get("/api/tags/:name/files", requireAuth, attachVault, (req, res) => {
   const tag = loadTagWithAccess(req, res);
   if (!tag) return;
   syncTagDirWithDb(tag);
@@ -499,11 +683,11 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 * 1024 },
 });
 
-app.post("/api/tags/:name/files", requireAuth, upload.single("file"), (req, res) => {
+app.post("/api/tags/:name/files", requireAuth, attachVault, upload.single("file"), (req, res) => {
   const cleanup = () => {
     if (req.file) fs.rmSync(req.file.path, { force: true });
   };
-  const tag = loadTagWithAccess(req, res);
+  const tag = loadTagWithAccess(req, res, { forUpload: true });
   if (!tag) return cleanup();
   if (!req.file) {
     return res.status(400).json({ error: "No file provided" });
@@ -520,8 +704,8 @@ app.post("/api/tags/:name/files", requireAuth, upload.single("file"), (req, res)
     return res.status(413).json({ error: quotaError });
   }
 
-  fs.mkdirSync(tagDir(tag.name), { recursive: true });
-  fs.renameSync(req.file.path, path.join(tagDir(tag.name), filename));
+  fs.mkdirSync(tagDir(tag), { recursive: true });
+  fs.renameSync(req.file.path, path.join(tagDir(tag), filename));
 
   db.prepare(
     `INSERT INTO files (tag_id, filename, size, uploaded_by, uploaded_by_uid, has_thumbnail)
@@ -549,7 +733,7 @@ const isValidUploadId = (id) => /^[a-f0-9]{16,64}$/i.test(id);
 // Receive one chunk, streamed straight to a temp file (no full-body buffering).
 // :index is constrained to digits so it never captures the "complete" route.
 app.post("/api/tags/:name/uploads/:uploadId/:index(\\d+)", requireAuth, (req, res) => {
-  const tag = loadTagWithAccess(req, res);
+  const tag = loadTagWithAccess(req, res, { forUpload: true });
   if (!tag) return;
 
   const { uploadId, index } = req.params;
@@ -579,8 +763,8 @@ app.post("/api/tags/:name/uploads/:uploadId/:index(\\d+)", requireAuth, (req, re
 });
 
 // Assemble the received chunks into the final file, in order.
-app.post("/api/tags/:name/uploads/:uploadId/complete", requireAuth, (req, res) => {
-  const tag = loadTagWithAccess(req, res);
+app.post("/api/tags/:name/uploads/:uploadId/complete", requireAuth, attachVault, (req, res) => {
+  const tag = loadTagWithAccess(req, res, { forUpload: true });
   if (!tag) return;
 
   const { uploadId } = req.params;
@@ -613,8 +797,8 @@ app.post("/api/tags/:name/uploads/:uploadId/complete", requireAuth, (req, res) =
     return res.status(413).json({ error: quotaError });
   }
 
-  fs.mkdirSync(tagDir(tag.name), { recursive: true });
-  const finalPath = path.join(tagDir(tag.name), filename);
+  fs.mkdirSync(tagDir(tag), { recursive: true });
+  const finalPath = path.join(tagDir(tag), filename);
   const out = fs.createWriteStream(finalPath);
 
   let failed = false;
@@ -669,7 +853,7 @@ app.post(
   requireAuth,
   express.raw({ type: ["image/webp", "image/*"], limit: "10mb" }),
   (req, res) => {
-    const tag = loadTagWithAccess(req, res);
+    const tag = loadTagWithAccess(req, res, { forUpload: true });
     if (!tag) return;
     const filename = req.params.filename;
     if (!isSafeFilename(filename) || !Buffer.isBuffer(req.body) || !req.body.length) {
@@ -681,8 +865,8 @@ app.post(
     if (!fileRow) {
       return res.status(404).json({ error: "File not found" });
     }
-    fs.mkdirSync(thumbsDir(tag.name), { recursive: true });
-    fs.writeFileSync(path.join(thumbsDir(tag.name), `${filename}.webp`), req.body);
+    fs.mkdirSync(thumbsDir(tag), { recursive: true });
+    fs.writeFileSync(path.join(thumbsDir(tag), `${filename}.webp`), req.body);
     db.prepare("UPDATE files SET has_thumbnail = 1 WHERE id = ?").run(fileRow.id);
     res.json({
       thumbnailURL: `/files/${encodeURIComponent(tag.name)}/thumbs/${encodeURIComponent(filename)}`,
@@ -690,9 +874,9 @@ app.post(
   }
 );
 
-app.delete("/api/tags/:name/files/:filename", requireAuth, (req, res) => {
+app.delete("/api/tags/:name/files/:filename", requireAuth, attachVault, (req, res) => {
   const tag = getTagByName.get(req.params.name);
-  if (!tag) {
+  if (!tag || hiddenBlocked(tag, req)) {
     return res.status(404).json({ error: "Tag not found" });
   }
   if (tag.owner_uid !== req.user.uid) {
@@ -702,15 +886,15 @@ app.delete("/api/tags/:name/files/:filename", requireAuth, (req, res) => {
   if (!isSafeFilename(filename)) {
     return res.status(400).json({ error: "Invalid filename" });
   }
-  fs.rmSync(path.join(tagDir(tag.name), filename), { force: true });
-  fs.rmSync(path.join(thumbsDir(tag.name), `${filename}.webp`), { force: true });
+  fs.rmSync(path.join(tagDir(tag), filename), { force: true });
+  fs.rmSync(path.join(thumbsDir(tag), `${filename}.webp`), { force: true });
   db.prepare("DELETE FROM files WHERE tag_id = ? AND filename = ?").run(tag.id, filename);
   res.json({ ok: true });
 });
 
-app.patch("/api/tags/:name/files/:filename", requireAuth, (req, res) => {
+app.patch("/api/tags/:name/files/:filename", requireAuth, attachVault, (req, res) => {
   const tag = getTagByName.get(req.params.name);
-  if (!tag) {
+  if (!tag || hiddenBlocked(tag, req)) {
     return res.status(404).json({ error: "Tag not found" });
   }
 
@@ -732,7 +916,7 @@ app.patch("/api/tags/:name/files/:filename", requireAuth, (req, res) => {
     return res.status(403).json({ error: "You can only rename files you uploaded" });
   }
 
-  const fromPath = path.join(tagDir(tag.name), oldName);
+  const fromPath = path.join(tagDir(tag), oldName);
   if (!fs.existsSync(fromPath)) {
     return res.status(404).json({ error: "File not found" });
   }
@@ -743,7 +927,7 @@ app.patch("/api/tags/:name/files/:filename", requireAuth, (req, res) => {
     return res.json({ file: fileRowToJson(tag, row) });
   }
 
-  const toPath = path.join(tagDir(tag.name), newName);
+  const toPath = path.join(tagDir(tag), newName);
   if (fs.existsSync(toPath)) {
     return res.status(409).json({ error: "A file with that name already exists" });
   }
@@ -751,9 +935,9 @@ app.patch("/api/tags/:name/files/:filename", requireAuth, (req, res) => {
   fs.renameSync(fromPath, toPath);
 
   // Carry the thumbnail across too, if one exists.
-  const oldThumb = path.join(thumbsDir(tag.name), `${oldName}.webp`);
+  const oldThumb = path.join(thumbsDir(tag), `${oldName}.webp`);
   if (fs.existsSync(oldThumb)) {
-    fs.renameSync(oldThumb, path.join(thumbsDir(tag.name), `${newName}.webp`));
+    fs.renameSync(oldThumb, path.join(thumbsDir(tag), `${newName}.webp`));
   }
 
   const updated = db
@@ -762,7 +946,7 @@ app.patch("/api/tags/:name/files/:filename", requireAuth, (req, res) => {
   if (updated.changes === 0) {
     // No DB row yet (e.g. a file copied in manually) — create one from disk.
     const stat = fs.statSync(toPath);
-    const hasThumb = fs.existsSync(path.join(thumbsDir(tag.name), `${newName}.webp`));
+    const hasThumb = fs.existsSync(path.join(thumbsDir(tag), `${newName}.webp`));
     db.prepare(
       `INSERT INTO files (tag_id, filename, size, uploaded_by, uploaded_by_uid, has_thumbnail, uploaded_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -803,7 +987,7 @@ app.get("/api/admin/overview", requireAuth, requireAdmin, (req, res) => {
     .prepare(
       `SELECT f.filename, f.size, f.uploaded_by, f.uploaded_at, t.name AS tag
        FROM files f JOIN tags t ON t.id = f.tag_id
-       ORDER BY f.uploaded_at DESC LIMIT 8`
+       WHERE t.hidden = 0 ORDER BY f.uploaded_at DESC LIMIT 8`
     )
     .all();
 
@@ -886,7 +1070,7 @@ app.patch("/api/admin/users/:uid", requireAuth, requireAdmin, (req, res) => {
 
 const serveTagFile = (req, res, isThumb) => {
   const tag = getTagByName.get(req.params.name);
-  if (!tag) {
+  if (!tag || hiddenBlocked(tag, req)) {
     return res.status(404).send("Not found");
   }
   if (!canViewTag(tag, req.user.uid)) {
@@ -897,8 +1081,8 @@ const serveTagFile = (req, res, isThumb) => {
     return res.status(400).send("Bad filename");
   }
   const filePath = isThumb
-    ? path.join(thumbsDir(tag.name), `${filename}.webp`)
-    : path.join(tagDir(tag.name), filename);
+    ? path.join(thumbsDir(tag), `${filename}.webp`)
+    : path.join(tagDir(tag), filename);
   if (!fs.existsSync(filePath)) {
     return res.status(404).send("Not found");
   }
@@ -910,10 +1094,10 @@ const serveTagFile = (req, res, isThumb) => {
   res.sendFile(filePath);
 };
 
-app.get("/files/:name/thumbs/:filename", requireAuth, (req, res) =>
+app.get("/files/:name/thumbs/:filename", requireAuth, attachVault, (req, res) =>
   serveTagFile(req, res, true)
 );
-app.get("/files/:name/:filename", requireAuth, (req, res) => serveTagFile(req, res, false));
+app.get("/files/:name/:filename", requireAuth, attachVault, (req, res) => serveTagFile(req, res, false));
 
 /* ---------- static frontend ---------- */
 

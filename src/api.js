@@ -2,10 +2,18 @@
 // so every request just needs credentials: "include" and file/thumbnail URLs
 // can be used directly in <a href> / <img src>.
 
+// Hidden-tags vault token: memory only, never persisted, expires server-side
+// in 15 minutes. Closing/refreshing the tab locks the vault again.
+let vaultToken = null;
+
 const request = async (path, options = {}) => {
+  const headers = {};
+  if (options.body) headers["Content-Type"] = "application/json";
+  if (vaultToken) headers["X-Vault-Token"] = vaultToken;
+
   const res = await fetch(path, {
     credentials: "include",
-    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    headers,
     ...options,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
@@ -148,7 +156,8 @@ const api = {
   deviceToken: () => request("/api/auth/device-token", { method: "POST" }),
 
   // --- tags ---
-  myTags: () => request("/api/tags/mine"),
+  myTags: (includeHidden = false) =>
+    request(`/api/tags/mine${includeHidden ? "?include_hidden=1" : ""}`),
   getTag: (name) => request(`/api/tags/${encodeURIComponent(name)}`),
   createTag: ({ name, access, desc }) =>
     request("/api/tags", { method: "POST", body: { name, access, desc } }),
@@ -165,6 +174,26 @@ const api = {
   // --- favorites ---
   setFavorite: (tag, favorite) =>
     request("/api/me/favorites", { method: "PUT", body: { tag, favorite } }),
+
+  // --- hidden-tags vault ---
+  setVaultToken: (token) => {
+    vaultToken = token || null;
+  },
+  hasVaultToken: () => !!vaultToken,
+  // Media elements (<img>, <a>, <video>) can't send headers, so hidden-tag
+  // file URLs carry the short-lived token as a query param instead.
+  withVaultParam: (url) =>
+    vaultToken && url
+      ? `${url}${url.includes("?") ? "&" : "?"}vt=${encodeURIComponent(vaultToken)}`
+      : url,
+  vaultStatus: () => request("/api/vault/status"),
+  vaultSetup: (password) =>
+    request("/api/vault/setup", { method: "POST", body: { password } }),
+  vaultUnlock: (password) =>
+    request("/api/vault/unlock", { method: "POST", body: { password } }),
+  vaultTags: () => request("/api/vault/tags"),
+  hideTag: (tag) => request("/api/vault/hide", { method: "POST", body: { tag } }),
+  unhideTag: (tag) => request("/api/vault/unhide", { method: "POST", body: { tag } }),
 
   // --- admin ---
   adminOverview: () => request("/api/admin/overview"),
