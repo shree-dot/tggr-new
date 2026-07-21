@@ -221,21 +221,6 @@ const api = {
       ? uploadChunked(tag, file, onProgress)
       : uploadSingle(tag, file, onProgress),
 
-  uploadThumbnail: async (tag, filename, blob) => {
-    const res = await fetch(
-      `/api/tags/${encodeURIComponent(tag)}/files/${encodeURIComponent(filename)}/thumbnail`,
-      {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "image/webp" },
-        body: blob,
-      }
-    );
-    if (!res.ok) {
-      throw new Error(`Thumbnail upload failed (${res.status})`);
-    }
-    return res.json();
-  },
 };
 
 export default api;

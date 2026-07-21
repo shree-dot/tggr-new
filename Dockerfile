@@ -11,8 +11,9 @@ RUN npm run build
 # Stage 2: runtime — API server + built frontend
 FROM node:22-alpine
 WORKDIR /app/server
-# better-sqlite3 needs build tools for its native module
-RUN apk add --no-cache python3 make g++
+# better-sqlite3 needs build tools for its native module (removed after
+# install); ffmpeg is needed at runtime for video thumbnail frame grabs.
+RUN apk add --no-cache python3 make g++ ffmpeg
 COPY server/package.json ./
 RUN npm install --omit=dev && apk del python3 make g++
 COPY server/ ./

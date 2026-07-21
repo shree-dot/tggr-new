@@ -360,50 +360,6 @@ const Upload = () => {
     );
   };
 
-  const createThumbnailBlob = (file, maxSize = 180, quality = 0.72) =>
-    new Promise((resolve, reject) => {
-      const objectUrl = URL.createObjectURL(file);
-      const image = new Image();
-
-      image.onload = () => {
-        const scale = Math.min(maxSize / image.width, maxSize / image.height, 1);
-        const width = Math.max(1, Math.round(image.width * scale));
-        const height = Math.max(1, Math.round(image.height * scale));
-
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          URL.revokeObjectURL(objectUrl);
-          reject(new Error("Canvas context is not available"));
-          return;
-        }
-
-        ctx.drawImage(image, 0, 0, width, height);
-        canvas.toBlob(
-          (blob) => {
-            URL.revokeObjectURL(objectUrl);
-            if (!blob) {
-              reject(new Error("Thumbnail blob generation failed"));
-              return;
-            }
-            resolve(blob);
-          },
-          "image/webp",
-          quality
-        );
-      };
-
-      image.onerror = () => {
-        URL.revokeObjectURL(objectUrl);
-        reject(new Error("Failed to read image for thumbnail"));
-      };
-
-      image.src = objectUrl;
-    });
-
   const getFileExtension = (filename) => {
     const idx = filename.lastIndexOf(".");
     if (idx === -1 || idx === filename.length - 1) {
@@ -472,40 +428,7 @@ const Upload = () => {
 
   const formatSpeed = (mbPerSec = 0) => `${mbPerSec.toFixed(mbPerSec >= 10 ? 1 : 2)} MB/s`;
 
-  const queueThumbnailGeneration = ({ selectedFile, filename, itemId }) => {
-    if (!isImageFile(selectedFile)) {
-      return;
-    }
-
-    // Run thumbnail generation lazily so main upload flow remains fast.
-    (async () => {
-      try {
-        const thumbnailBlob = await createThumbnailBlob(selectedFile);
-        const { thumbnailURL } = await api.uploadThumbnail(
-          tagname,
-          filename,
-          thumbnailBlob
-        );
-
-        setUploadedItems((prev) =>
-          prev.map((item) =>
-            item.id === itemId
-              ? {
-                  ...item,
-                  thumbnailURL,
-                }
-              : item
-          )
-        );
-      } catch (thumbnailError) {
-        console.log("Background thumbnail generation skipped:", thumbnailError);
-      }
-    })();
-  };
-
   const uploadSingleFile = async (selectedFile, itemId) => {
-    const filename = selectedFile.name;
-
     try {
       const { file: uploaded } = await api.uploadFile(tagname, selectedFile, {
         onProgress: ({ bytesTransferred, totalBytes }) => {
@@ -541,18 +464,15 @@ const Upload = () => {
         )
       );
 
-      queueThumbnailGeneration({
-        selectedFile,
-        filename,
-        itemId,
-      });
-
       setUploadedItems((prev) =>
         prev.map((item) =>
           item.id === itemId
             ? {
                 ...item,
                 url: uploaded.url,
+                // The server generates the thumbnail (image or video frame)
+                // synchronously before responding, so it's ready immediately.
+                thumbnailURL: uploaded.thumbnailURL || item.thumbnailURL,
                 progress: 100,
                 status: "done",
                 transferredBytes: item.totalBytes || item.transferredBytes,

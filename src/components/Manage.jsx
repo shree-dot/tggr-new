@@ -188,6 +188,13 @@ const Manage = () => {
     return `${dt}-${month}-${year}`;
   };
 
+  // Prefer the generated thumbnail for anything that has one (images and
+  // videos alike). Falls back to the full image for images without a
+  // thumbnail yet; videos with none show the file-type icon instead, since
+  // the raw video file can't render inside an <img>.
+  const getPreviewSrc = (item) =>
+    item.thumbnailURL || (isImageFile(item.name) ? item.url : "");
+
   const isImageFile = (filename) => {
     const lower = filename.toLowerCase();
     return (
@@ -1104,12 +1111,12 @@ const Manage = () => {
 
                     {/* thumbnail */}
                     <div className="file-tile-thumb">
-                      {isImageFile(item.name) ? (
+                      {getPreviewSrc(item) ? (
                         <img
-                          src={item.thumbnailURL || item.url}
+                          src={getPreviewSrc(item)}
                           alt=""
                           onError={(e) => {
-                            if (e.currentTarget.src !== item.url) {
+                            if (isImageFile(item.name) && e.currentTarget.src !== item.url) {
                               e.currentTarget.src = item.url;
                             }
                           }}
@@ -1169,12 +1176,12 @@ const Manage = () => {
                     className="file-list-row"
                   >
                     <div style={{ display: "flex", alignItems: "center", minWidth: 0, gap: "8px", flex: 1 }}>
-                      {isImageFile(item.name) ? (
+                      {getPreviewSrc(item) ? (
                         <img
-                          src={item.thumbnailURL || item.url}
+                          src={getPreviewSrc(item)}
                           alt="preview"
                           onError={(e) => {
-                            if (e.currentTarget.src !== item.url) {
+                            if (isImageFile(item.name) && e.currentTarget.src !== item.url) {
                               e.currentTarget.src = item.url;
                             }
                           }}

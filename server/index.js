@@ -9,6 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { OAuth2Client } from "google-auth-library";
 import db, { DATA_DIR, FILES_DIR, parseJson } from "./db.js";
+import { isThumbnailable, generateThumbnail } from "./thumbnails.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3001);
@@ -649,8 +650,8 @@ const loadTagWithAccess = (req, res, { forUpload = false } = {}) => {
 
 // Keep the DB in sync with the tag's directory so files copied onto the NAS
 // manually (e.g. dropped in over SMB or restored from a Firebase download)
-// show up without any import step.
-const syncTagDirWithDb = (tag) => {
+// show up without any import step — including a generated thumbnail.
+const syncTagDirWithDb = async (tag) => {
   const dir = tagDir(tag);
   if (!fs.existsSync(dir)) return;
 
@@ -665,7 +666,11 @@ const syncTagDirWithDb = (tag) => {
     if (existing) continue;
 
     const stat = fs.statSync(path.join(dir, entry.name));
-    const hasThumb = fs.existsSync(path.join(thumbsDir(tag), `${entry.name}.webp`));
+    const thumbPath = path.join(thumbsDir(tag), `${entry.name}.webp`);
+    let hasThumb = fs.existsSync(thumbPath);
+    if (!hasThumb && isThumbnailable(entry.name)) {
+      hasThumb = await generateThumbnail(path.join(dir, entry.name), thumbPath, entry.name);
+    }
     db.prepare(
       `INSERT INTO files (tag_id, filename, size, uploaded_by, uploaded_by_uid, has_thumbnail, uploaded_at)
        VALUES (?, ?, ?, 'Unknown', '', ?, ?)`
@@ -681,10 +686,10 @@ const syncTagDirWithDb = (tag) => {
   }
 };
 
-app.get("/api/tags/:name/files", requireAuth, attachVault, (req, res) => {
+app.get("/api/tags/:name/files", requireAuth, attachVault, async (req, res) => {
   const tag = loadTagWithAccess(req, res);
   if (!tag) return;
-  syncTagDirWithDb(tag);
+  await syncTagDirWithDb(tag);
   const rows = db
     .prepare("SELECT * FROM files WHERE tag_id = ? ORDER BY uploaded_at DESC")
     .all(tag.id);
@@ -696,7 +701,7 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 * 1024 },
 });
 
-app.post("/api/tags/:name/files", requireAuth, attachVault, upload.single("file"), (req, res) => {
+app.post("/api/tags/:name/files", requireAuth, attachVault, upload.single("file"), async (req, res) => {
   const cleanup = () => {
     if (req.file) fs.rmSync(req.file.path, { force: true });
   };
@@ -722,18 +727,24 @@ app.post("/api/tags/:name/files", requireAuth, attachVault, upload.single("file"
   }
 
   fs.mkdirSync(tagDir(tag), { recursive: true });
-  fs.renameSync(req.file.path, path.join(tagDir(tag), filename));
+  const destPath = path.join(tagDir(tag), filename);
+  fs.renameSync(req.file.path, destPath);
+
+  let hasThumb = false;
+  if (isThumbnailable(filename)) {
+    hasThumb = await generateThumbnail(destPath, path.join(thumbsDir(tag), `${filename}.webp`), filename);
+  }
 
   db.prepare(
     `INSERT INTO files (tag_id, filename, size, uploaded_by, uploaded_by_uid, has_thumbnail)
-     VALUES (?, ?, ?, ?, ?, 0)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(tag_id, filename) DO UPDATE SET
        size = excluded.size,
        uploaded_by = excluded.uploaded_by,
        uploaded_by_uid = excluded.uploaded_by_uid,
-       has_thumbnail = 0,
+       has_thumbnail = excluded.has_thumbnail,
        uploaded_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')`
-  ).run(tag.id, filename, req.file.size, req.user.name, req.user.uid);
+  ).run(tag.id, filename, req.file.size, req.user.name, req.user.uid, hasThumb ? 1 : 0);
   touchActivity.run(tag.id);
 
   const row = db
@@ -848,19 +859,25 @@ app.post("/api/tags/:name/uploads/:uploadId/complete", requireAuth, attachVault,
   };
 
   out.on("error", fail);
-  out.on("finish", () => {
+  out.on("finish", async () => {
     if (failed) return;
     const size = fs.statSync(finalPath).size;
+
+    let hasThumb = false;
+    if (isThumbnailable(filename)) {
+      hasThumb = await generateThumbnail(finalPath, path.join(thumbsDir(tag), `${filename}.webp`), filename);
+    }
+
     db.prepare(
       `INSERT INTO files (tag_id, filename, size, uploaded_by, uploaded_by_uid, has_thumbnail)
-       VALUES (?, ?, ?, ?, ?, 0)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(tag_id, filename) DO UPDATE SET
          size = excluded.size,
          uploaded_by = excluded.uploaded_by,
          uploaded_by_uid = excluded.uploaded_by_uid,
-         has_thumbnail = 0,
+         has_thumbnail = excluded.has_thumbnail,
          uploaded_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')`
-    ).run(tag.id, filename, size, req.user.name, req.user.uid);
+    ).run(tag.id, filename, size, req.user.name, req.user.uid, hasThumb ? 1 : 0);
     touchActivity.run(tag.id);
     fs.rmSync(dir, { recursive: true, force: true });
 
@@ -883,32 +900,6 @@ app.post("/api/tags/:name/uploads/:uploadId/complete", requireAuth, attachVault,
   };
   appendChunk(0);
 });
-
-app.post(
-  "/api/tags/:name/files/:filename/thumbnail",
-  requireAuth,
-  express.raw({ type: ["image/webp", "image/*"], limit: "10mb" }),
-  (req, res) => {
-    const tag = loadTagWithAccess(req, res, { forUpload: true });
-    if (!tag) return;
-    const filename = req.params.filename;
-    if (!isSafeFilename(filename) || !Buffer.isBuffer(req.body) || !req.body.length) {
-      return res.status(400).json({ error: "Invalid thumbnail upload" });
-    }
-    const fileRow = db
-      .prepare("SELECT * FROM files WHERE tag_id = ? AND filename = ?")
-      .get(tag.id, filename);
-    if (!fileRow) {
-      return res.status(404).json({ error: "File not found" });
-    }
-    fs.mkdirSync(thumbsDir(tag), { recursive: true });
-    fs.writeFileSync(path.join(thumbsDir(tag), `${filename}.webp`), req.body);
-    db.prepare("UPDATE files SET has_thumbnail = 1 WHERE id = ?").run(fileRow.id);
-    res.json({
-      thumbnailURL: `/files/${encodeURIComponent(tag.name)}/thumbs/${encodeURIComponent(filename)}`,
-    });
-  }
-);
 
 app.delete("/api/tags/:name/files/:filename", requireAuth, attachVault, (req, res) => {
   const tag = getTagByName.get(req.params.name);
