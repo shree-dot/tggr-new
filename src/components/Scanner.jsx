@@ -24,10 +24,6 @@ import {
 import { buildImages, buildPdf, defaultScanName, sanitiseBaseName } from "../scanner/output.js";
 import "../scanner.css";
 
-// Camera frames are only re-analysed every ~90ms. Detection on a 480px copy
-// costs a few milliseconds, but running it every frame competes with the video
-// element for the main thread and makes the preview stutter on mid-range phones.
-const DETECT_INTERVAL_MS = 90;
 const MAX_SOURCE_PIXELS = 12_000_000;
 
 const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -68,7 +64,6 @@ const Scanner = () => {
   const [savedTag, setSavedTag] = useState("");
 
   const videoRef = useRef(null);
-  const overlayRef = useRef(null);
   const fileInputRef = useRef(null);
   const queueRef = useRef(Promise.resolve());
   const pagesRef = useRef(pages);
@@ -157,80 +152,6 @@ const Scanner = () => {
     };
   }, [cameraActive]);
 
-  // Live corner overlay.
-  useEffect(() => {
-    if (!cameraActive || editingId) return undefined;
-
-    let frame = 0;
-    let lastRun = 0;
-
-    const draw = (corners) => {
-      const canvas = overlayRef.current;
-      const video = videoRef.current;
-      if (!canvas || !video) return;
-
-      const rect = canvas.getBoundingClientRect();
-      const ratio = window.devicePixelRatio || 1;
-      const width = Math.round(rect.width * ratio);
-      const height = Math.round(rect.height * ratio);
-      if (canvas.width !== width) canvas.width = width;
-      if (canvas.height !== height) canvas.height = height;
-
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (!corners) return;
-
-      // The video is letterboxed with object-fit: contain inside a box of the
-      // same aspect ratio, so a single uniform scale maps frame to screen.
-      const scale = canvas.width / video.videoWidth;
-      ctx.beginPath();
-      ["topLeftCorner", "topRightCorner", "bottomRightCorner", "bottomLeftCorner"].forEach(
-        (key, index) => {
-          const point = corners[key];
-          const x = point.x * scale;
-          const y = point.y * scale;
-          if (index === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-      );
-      ctx.closePath();
-      ctx.fillStyle = "rgba(200, 255, 114, 0.16)";
-      ctx.fill();
-      ctx.strokeStyle = "#c8ff72";
-      ctx.lineWidth = 3 * ratio;
-      ctx.stroke();
-    };
-
-    let inFlight = false;
-    let cancelled = false;
-
-    const tick = (timestamp) => {
-      frame = requestAnimationFrame(tick);
-      // Detection is a round trip to the worker now; never stack requests, or a
-      // slow phone ends up processing a queue of stale frames.
-      if (inFlight || timestamp - lastRun < DETECT_INTERVAL_MS) return;
-
-      const video = videoRef.current;
-      if (!video || video.readyState < 2 || !video.videoWidth) return;
-
-      lastRun = timestamp;
-      inFlight = true;
-      detectCorners(video, video.videoWidth, video.videoHeight)
-        .then((corners) => {
-          if (!cancelled) draw(corners);
-        })
-        .finally(() => {
-          inFlight = false;
-        });
-    };
-
-    frame = requestAnimationFrame(tick);
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(frame);
-    };
-  }, [cameraActive, editingId]);
-
   const enqueue = useCallback((task) => {
     queueRef.current = queueRef.current.then(task, task);
     return queueRef.current;
@@ -276,7 +197,7 @@ const Scanner = () => {
       canvas.getContext("2d").drawImage(source, 0, 0, canvas.width, canvas.height);
 
       const corners =
-        (await detectCorners(canvas, canvas.width, canvas.height, { fast: false })) ||
+        (await detectCorners(canvas, canvas.width, canvas.height)) ||
         defaultCorners(canvas.width, canvas.height);
       const blob = await canvasToBlob(canvas, 0.92);
       canvas.width = 0;
@@ -515,7 +436,6 @@ const Scanner = () => {
           {mode === "camera" && !cameraError ? (
             <div className="scanner-viewport">
               <video ref={videoRef} className="scanner-video" playsInline muted autoPlay />
-              <canvas ref={overlayRef} className="scanner-overlay" aria-hidden="true" />
             </div>
           ) : null}
 
@@ -691,8 +611,8 @@ const Scanner = () => {
 
       {stage === "capture" && !pages.length ? (
         <p className="scanner-hint scanner-foot-hint">
-          Frame the document until the outline snaps to its edges, then tap the shutter. Pages are
-          brightened with the <strong>{FILTERS[filter]}</strong> filter — you can change that per page.
+          Fit the document in the frame and tap the shutter. Edges are detected after the shot — tap
+          the page to adjust the crop. Pages use the <strong>{FILTERS[filter]}</strong> filter.
         </p>
       ) : null}
     </div>

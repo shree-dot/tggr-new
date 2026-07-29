@@ -21,10 +21,8 @@ export const CORNER_KEYS = [
 // Phone cameras shoot 48MP+. Decoding that into a canvas is wasteful, and on
 // iOS Safari canvases past ~16.7M pixels come back blank, so cap the source.
 const MAX_SOURCE_PIXELS = 12_000_000;
-// Contours do not get better with resolution, only slower. Small copies keep
-// the live overlay responsive; capture gets a bit more to work with.
-const DETECT_EDGE = 480;
-const CAPTURE_DETECT_EDGE = 1000;
+// Contours do not get better with resolution, only slower.
+const DETECT_EDGE = 1000;
 // Compiling 6MB of wasm is slow on a cheap phone but not unbounded. If we are
 // still waiting after this, something is wrong and the user deserves to know.
 const ENGINE_TIMEOUT_MS = 60_000;
@@ -156,21 +154,22 @@ export const defaultCorners = (width, height) => {
 };
 
 // Detects the page in `source` and resolves with corners in *source* pixel
-// coordinates, or null when nothing convincing is found.
-export const detectCorners = async (source, sourceWidth, sourceHeight, { fast = true } = {}) => {
+// coordinates, or null when nothing convincing is found. Runs once per captured
+// page — the corners are then the user's to adjust.
+export const detectCorners = async (source, sourceWidth, sourceHeight) => {
   if (!sourceWidth || !sourceHeight) return null;
 
-  const scale = fitScale(sourceWidth, sourceHeight, fast ? DETECT_EDGE : CAPTURE_DETECT_EDGE);
-  const image = toTransferable(fast ? "detect-fast" : "detect-full", source, sourceWidth, sourceHeight, scale);
+  const scale = fitScale(sourceWidth, sourceHeight, DETECT_EDGE);
+  const image = toTransferable("detect", source, sourceWidth, sourceHeight, scale);
 
   try {
-    const { corners } = await request("detect", { image, fast }, [image.buffer]);
+    const { corners } = await request("detect", { image }, [image.buffer]);
     if (!corners) return null;
     return clampCorners(scaleCorners(corners, 1 / scale), sourceWidth, sourceHeight);
   } catch (error) {
-    // A bad frame must never break the live overlay, so failures fall back to
-    // "no quad". Outside the camera loop that would hide real bugs, so say so.
-    if (!fast) console.warn("Corner detection failed:", error);
+    // Falling back to the default quad is recoverable; staying quiet about why
+    // is not.
+    console.warn("Corner detection failed:", error);
     return null;
   }
 };
@@ -197,7 +196,7 @@ export const renderPage = async (
   source,
   sourceWidth,
   sourceHeight,
-  { corners, filter = "original", rotation = 0 }
+  { corners, filter = "original", rotation = 0, maxEdge }
 ) => {
   const quad = corners || defaultCorners(sourceWidth, sourceHeight);
   const scale = Math.min(1, Math.sqrt(MAX_SOURCE_PIXELS / (sourceWidth * sourceHeight)));
@@ -205,7 +204,7 @@ export const renderPage = async (
 
   const { image: result } = await request(
     "render",
-    { image, corners: scaleCorners(quad, scale), filter },
+    { image, corners: scaleCorners(quad, scale), filter, maxEdge },
     [image.buffer]
   );
 

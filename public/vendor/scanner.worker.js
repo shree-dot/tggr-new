@@ -242,19 +242,20 @@ const applyBlackAndWhite = (src, track) => {
 
 // Output size from the corner geometry: take the longer of each opposing pair
 // so a page photographed at an angle still comes out at roughly its true aspect.
-const outputSize = (corners) => {
+// `maxEdge` lets the editor ask for a small, quick preview render.
+const outputSize = (corners, maxEdge) => {
   const { topLeftCorner: tl, topRightCorner: tr, bottomRightCorner: br, bottomLeftCorner: bl } = corners;
   const width = Math.max(distance(tl, tr), distance(bl, br));
   const height = Math.max(distance(tl, bl), distance(tr, br));
-  const scale = Math.min(1, MAX_OUTPUT_EDGE / Math.max(width, height));
+  const scale = Math.min(1, (maxEdge || MAX_OUTPUT_EDGE) / Math.max(width, height));
   return {
     width: Math.max(16, Math.round(width * scale)),
     height: Math.max(16, Math.round(height * scale)),
   };
 };
 
-const render = (image, corners, filter) => {
-  const { width, height } = outputSize(corners);
+const render = (image, corners, filter, maxEdge) => {
+  const { width, height } = outputSize(corners, maxEdge);
   const track = scope();
   try {
     const src = track(toMat(image));
@@ -308,7 +309,7 @@ self.onmessage = async (event) => {
     }
 
     if (type === "render") {
-      const image = render(event.data.image, event.data.corners, event.data.filter);
+      const image = render(event.data.image, event.data.corners, event.data.filter, event.data.maxEdge);
       self.postMessage({ id, image }, [image.buffer]);
       return;
     }

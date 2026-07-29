@@ -99,20 +99,12 @@
   }
 }
 
-.scanner-video,
-.scanner-overlay {
+.scanner-video {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-}
-
-.scanner-video {
   object-fit: contain;
-}
-
-.scanner-overlay {
-  pointer-events: none;
 }
 
 .scanner-capture-row {
@@ -422,12 +414,44 @@
 .scanner-editor {
   position: fixed;
   inset: 0;
+  /* dvh tracks the *visible* viewport, so the tool rows stay clear of Safari's
+     floating address bar instead of sitting behind it. */
+  height: 100dvh;
   z-index: 60;
   background: var(--bg);
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto;
   gap: 0.5rem;
   padding: 0.6rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+}
+
+.scanner-viewtabs {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: center;
+}
+
+.scanner-preview {
+  display: grid;
+  place-items: center;
+}
+
+.scanner-preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  /* Scans are white; on the dark editor they need an edge to read as a page. */
+  background: #fff;
+}
+
+.scanner-preview-veil {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 6, 4, 0.55);
 }
 
 .scanner-editor-bar {
@@ -442,16 +466,22 @@
   font-size: 0.9rem;
 }
 
+/* The stage fills whatever the header and tool rows leave over. Its contents are
+   taken out of flow deliberately: an in-flow child sized by `aspect-ratio` grows
+   the grid track, which can only be capped by a percentage height that itself
+   depends on the track — the circular case resolves to "no cap", and a tall page
+   shoves the controls off the bottom of the screen. Out-of-flow children
+   contribute nothing to track sizing, so the tool rows are always reachable. */
 .scanner-editor-stage {
-  display: grid;
-  place-items: center;
+  position: relative;
   min-height: 0;
+  overflow: hidden;
 }
 
-.scanner-editor-frame {
-  position: relative;
-  width: min(100%, 640px);
-  max-height: 100%;
+.scanner-editor-frame,
+.scanner-preview {
+  position: absolute;
+  inset: 0;
 }
 
 .scanner-editor-image {
@@ -497,11 +527,20 @@
   justify-items: center;
 }
 
-@media (max-width: 560px) {
-  .scanner-editor-frame {
-    width: 100%;
+@media (max-width: 720px) {
+  /* iOS Safari's address bar floats over the bottom of the page and will happily
+     sit on top of the shutter. Cap the viewfinder against the visible viewport
+     and reserve room below it so the shutter is always reachable. */
+  .scanner-shell {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
   }
 
+  .scanner-viewport {
+    max-height: 52dvh;
+  }
+}
+
+@media (max-width: 560px) {
   .scanner-save-actions {
     justify-content: stretch;
   }
