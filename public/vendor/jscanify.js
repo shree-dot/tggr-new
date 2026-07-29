@@ -1,9 +1,8 @@
 /*! jscanify v1.4.3 | (c) ColonelParrot and other contributors | MIT License */
-// Vendored from the jscanify npm package and converted from UMD to an ES module.
-// The published entry point pulls in node-canvas + jsdom for its Node build, which
-// we have no use for in a browser bundle. Only the wrapper changed; logic is verbatim.
-// `cv` resolves to the global installed by public/vendor/opencv.js at runtime.
-
+// Vendored from the jscanify npm package, rewrapped as a classic script so it
+// can be pulled into the scanner worker with importScripts(). Logic verbatim;
+// `cv` resolves to the namespace opencv.js installs on the worker global.
+(function (global) {
   "use strict";
 
   /**
@@ -255,6 +254,5 @@
       };
     }
   }
-
-
-export default jscanify;
+  global.jscanify = jscanify;
+})(typeof self !== "undefined" ? self : this);

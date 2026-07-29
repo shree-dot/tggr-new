@@ -18,7 +18,7 @@ import {
   defaultCorners,
   detectCorners,
   ensureEngine,
-  releaseScratch,
+  releaseEngine,
   renderPage,
 } from "../scanner/pipeline.js";
 import { buildImages, buildPdf, defaultScanName, sanitiseBaseName } from "../scanner/output.js";
@@ -99,7 +99,7 @@ const Scanner = () => {
   useEffect(
     () => () => {
       pagesRef.current.forEach(revokePage);
-      releaseScratch();
+      releaseEngine();
     },
     []
   );
@@ -201,18 +201,34 @@ const Scanner = () => {
       ctx.stroke();
     };
 
+    let inFlight = false;
+    let cancelled = false;
+
     const tick = (timestamp) => {
       frame = requestAnimationFrame(tick);
-      if (timestamp - lastRun < DETECT_INTERVAL_MS) return;
-      lastRun = timestamp;
+      // Detection is a round trip to the worker now; never stack requests, or a
+      // slow phone ends up processing a queue of stale frames.
+      if (inFlight || timestamp - lastRun < DETECT_INTERVAL_MS) return;
 
       const video = videoRef.current;
       if (!video || video.readyState < 2 || !video.videoWidth) return;
-      draw(detectCorners(video, video.videoWidth, video.videoHeight));
+
+      lastRun = timestamp;
+      inFlight = true;
+      detectCorners(video, video.videoWidth, video.videoHeight)
+        .then((corners) => {
+          if (!cancelled) draw(corners);
+        })
+        .finally(() => {
+          inFlight = false;
+        });
     };
 
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
   }, [cameraActive, editingId]);
 
   const enqueue = useCallback((task) => {
@@ -224,7 +240,7 @@ const Scanner = () => {
   const processPage = useCallback(async (page) => {
     try {
       const image = await loadImage(page.source.url);
-      const canvas = renderPage(image, page.source.width, page.source.height, {
+      const canvas = await renderPage(image, page.source.width, page.source.height, {
         corners: page.corners,
         filter: page.filter,
         rotation: page.rotation,
@@ -260,7 +276,7 @@ const Scanner = () => {
       canvas.getContext("2d").drawImage(source, 0, 0, canvas.width, canvas.height);
 
       const corners =
-        detectCorners(canvas, canvas.width, canvas.height, { fast: false }) ||
+        (await detectCorners(canvas, canvas.width, canvas.height, { fast: false })) ||
         defaultCorners(canvas.width, canvas.height);
       const blob = await canvasToBlob(canvas, 0.92);
       canvas.width = 0;
