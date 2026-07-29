@@ -3522,3 +3522,51 @@ video.lightbox-media {
 .vault-row-unhide {
   color: var(--primary);
 }
+
+/* Scanner entry points. The scanner's own styles ship with its lazy chunk
+   (src/scanner.css); only what the home screen needs lives here. */
+
+.menu-cta-scan {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(200, 255, 114, 0.45);
+  background: rgba(200, 255, 114, 0.12);
+  color: var(--primary);
+}
+
+.menu-cta-scan:hover {
+  border-color: var(--primary);
+  background: rgba(200, 255, 114, 0.2);
+}
+
+/* Thumb-reachable on phones, where the hero CTA scrolls out of view. */
+.scan-fab {
+  display: none;
+  position: fixed;
+  right: 18px;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--on-primary);
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+  z-index: 40;
+}
+
+@media (max-width: 720px) {
+  .scan-fab {
+    display: inline-flex;
+  }
+}
+
+.scanner-boot {
+  margin: 0;
+  padding: 3rem 1rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.88rem;
+}

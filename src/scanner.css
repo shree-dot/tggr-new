@@ -1,0 +1,513 @@
+/* Document scanner. Imported by Scanner.jsx so it ships with the lazy chunk
+   rather than the main stylesheet — the home screen's scan entry points live
+   in index.css instead. */
+
+.scanner-shell {
+  max-width: 900px;
+  margin: 0.35rem auto 3rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.scanner-centred {
+  justify-items: center;
+  text-align: center;
+  padding: 3rem 1rem;
+}
+
+.scanner-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.scanner-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.scanner-modes,
+.scanner-filter-row,
+.scanner-editor-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.scanner-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.scanner-foot-hint {
+  text-align: center;
+}
+
+.scanner-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.88rem;
+}
+
+.scanner-notice {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.scanner-success-icon {
+  color: var(--primary);
+}
+
+.scanner-spin {
+  animation: scanner-spin 0.9s linear infinite;
+  color: var(--muted);
+}
+
+@keyframes scanner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Camera */
+
+.scanner-viewport {
+  position: relative;
+  width: 100%;
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  aspect-ratio: 3 / 4;
+}
+
+@media (min-width: 720px) {
+  .scanner-viewport {
+    aspect-ratio: 4 / 3;
+  }
+}
+
+.scanner-video,
+.scanner-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.scanner-video {
+  object-fit: contain;
+}
+
+.scanner-overlay {
+  pointer-events: none;
+}
+
+.scanner-capture-row {
+  display: flex;
+  justify-content: center;
+}
+
+.scanner-shutter {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  border: 3px solid var(--primary);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.12s ease;
+}
+
+.scanner-shutter span {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--primary);
+  display: block;
+}
+
+.scanner-shutter:active {
+  transform: scale(0.94);
+}
+
+.scanner-shutter:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Drop zone */
+
+.scanner-drop {
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
+  padding: 2.5rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.015);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.scanner-drop:hover,
+.scanner-drop.is-active {
+  border-color: rgba(200, 255, 114, 0.5);
+  background: rgba(200, 255, 114, 0.07);
+}
+
+.scanner-drop-title {
+  margin: 0;
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* Page strip */
+
+.scanner-strip {
+  display: flex;
+  gap: 0.6rem;
+  overflow-x: auto;
+  padding: 0.25rem 0.1rem 0.5rem;
+}
+
+.scanner-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 84px;
+  height: 110px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  padding: 0;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.scanner-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.scanner-thumb.is-processing {
+  cursor: default;
+}
+
+.scanner-thumb-index {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: rgba(2, 6, 4, 0.78);
+  color: var(--text);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+/* Buttons and chips */
+
+.scanner-btn,
+.scanner-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: 999px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.scanner-chip {
+  font-size: 0.8rem;
+  padding: 0.38rem 0.72rem;
+}
+
+.scanner-btn {
+  font-size: 0.9rem;
+  padding: 0.55rem 1.1rem;
+  text-decoration: none;
+}
+
+.scanner-btn:hover,
+.scanner-chip:hover {
+  border-color: rgba(200, 255, 114, 0.45);
+}
+
+.scanner-chip.is-selected {
+  border-color: var(--primary);
+  background: rgba(200, 255, 114, 0.16);
+  color: var(--primary);
+}
+
+.scanner-chip.is-danger {
+  color: var(--danger);
+  border-color: rgba(200, 85, 102, 0.4);
+}
+
+.scanner-btn.is-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
+
+.scanner-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.scanner-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.scanner-icon-btn.is-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
+
+.scanner-footer,
+.scanner-done-actions,
+.scanner-save-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.scanner-footer .scanner-btn {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+.scanner-save-actions {
+  justify-content: flex-end;
+}
+
+/* Save panel */
+
+.scanner-save {
+  display: grid;
+  gap: 1rem;
+}
+
+.scanner-field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.scanner-field > span {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.scanner-field input[type="text"] {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.92rem;
+}
+
+.scanner-search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 0.45rem 0.65rem;
+  color: var(--muted);
+}
+
+.scanner-search input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.scanner-tagpicker {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.scanner-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.scanner-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.scanner-tag.is-selected {
+  border-color: var(--primary);
+  background: rgba(200, 255, 114, 0.16);
+  color: var(--primary);
+}
+
+.scanner-progress {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  overflow: hidden;
+}
+
+.scanner-progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(200, 255, 114, 0.16);
+  transition: width 0.2s ease;
+}
+
+.scanner-progress span {
+  position: relative;
+}
+
+/* Page editor */
+
+.scanner-editor {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--bg);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+}
+
+.scanner-editor-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.scanner-editor-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.scanner-editor-stage {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+}
+
+.scanner-editor-frame {
+  position: relative;
+  width: min(100%, 640px);
+  max-height: 100%;
+}
+
+.scanner-editor-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+
+.scanner-editor-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.scanner-quad {
+  fill: rgba(200, 255, 114, 0.14);
+  stroke: #c8ff72;
+}
+
+.scanner-handle {
+  fill: rgba(2, 6, 4, 0.55);
+  stroke: #c8ff72;
+  pointer-events: none;
+}
+
+.scanner-handle.is-active {
+  fill: rgba(200, 255, 114, 0.5);
+}
+
+.scanner-handle-hit {
+  fill: transparent;
+  cursor: grab;
+  touch-action: none;
+}
+
+.scanner-editor-tools {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: center;
+}
+
+@media (max-width: 560px) {
+  .scanner-editor-frame {
+    width: 100%;
+  }
+
+  .scanner-save-actions {
+    justify-content: stretch;
+  }
+
+  .scanner-save-actions .scanner-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}

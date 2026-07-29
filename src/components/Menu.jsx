@@ -1,5 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import { ScanLine } from "lucide-react";
 import create from "../svg/create.webp";
 import upload from "../svg/upload.webp";
 import manage from "../svg/manage.webp";
@@ -19,6 +20,10 @@ const Menu = () => {
           </Link>
           <Link className="menu-cta menu-cta-secondary" to="/create">
             Create A Tag
+          </Link>
+          <Link className="menu-cta menu-cta-scan" to="/scan">
+            <ScanLine size={16} aria-hidden="true" />
+            Scan Document
           </Link>
         </div>
       </section>
@@ -57,6 +62,12 @@ const Menu = () => {
           </Link>
         </article>
       </section>
+
+      {/* Thumb-reachable shortcut: on phones the hero CTA scrolls away, and
+          scanning is the one action people arrive wanting to do immediately. */}
+      <Link className="scan-fab" to="/scan" aria-label="Scan a document">
+        <ScanLine size={22} aria-hidden="true" />
+      </Link>
     </div>
   );
 };
