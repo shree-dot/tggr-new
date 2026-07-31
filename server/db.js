@@ -55,8 +55,22 @@ CREATE TABLE IF NOT EXISTS files (
   UNIQUE(tag_id, filename)
 );
 
+-- Cloud clipboard: private per-user text snippets. Nothing here is ever shared
+-- or auto-expired; entries live until their owner deletes them.
+CREATE TABLE IF NOT EXISTS clips (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_uid TEXT NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_tags_owner ON tags(owner_uid);
 CREATE INDEX IF NOT EXISTS idx_files_tag ON files(tag_id);
+-- Matches the only listing order the clipboard uses: pinned first, newest next.
+CREATE INDEX IF NOT EXISTS idx_clips_owner ON clips(owner_uid, pinned DESC, updated_at DESC);
 `);
 
 // Upgrade databases created before the auth_provider column existed.

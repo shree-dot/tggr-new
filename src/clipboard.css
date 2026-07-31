@@ -1,0 +1,379 @@
+/* Cloud clipboard. Imported by Clipboard.jsx so it ships with the lazy chunk;
+   the home-screen tile's styles live in index.css. */
+
+.clipboard-shell {
+  width: min(820px, 100%);
+  margin: 0.35rem auto 3rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.clipboard-head {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.clipboard-title {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+.clipboard-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* Composer */
+
+.clipboard-composer {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.clipboard-input,
+.clipboard-label-input,
+.clip-edit textarea,
+.clip-edit input {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  font-size: 0.92rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.clipboard-input:focus,
+.clipboard-label-input:focus,
+.clip-edit textarea:focus,
+.clip-edit input:focus,
+.clipboard-search input:focus {
+  outline: none;
+  border-color: rgba(200, 255, 114, 0.5);
+}
+
+.clipboard-composer-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.clipboard-label-input {
+  flex: 1 1 180px;
+  width: auto;
+}
+
+.clipboard-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+/* Buttons */
+
+.clip-primary,
+.clip-ghost,
+.clip-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: border-color 0.15s ease, background 0.15s ease;
+  white-space: nowrap;
+}
+
+.clip-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
+
+.clip-ghost {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.clip-ghost:hover {
+  border-color: rgba(200, 255, 114, 0.45);
+}
+
+.clip-danger {
+  background: var(--danger-soft);
+  border-color: rgba(200, 85, 102, 0.45);
+  color: var(--danger);
+}
+
+.clip-primary:disabled,
+.clip-ghost:disabled,
+.clip-danger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.clip-spin {
+  animation: clip-spin 0.9s linear infinite;
+}
+
+@keyframes clip-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Toolbar */
+
+.clipboard-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.clipboard-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 0.45rem 0.65rem;
+  color: var(--muted);
+}
+
+.clipboard-search input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.clipboard-notice,
+.clipboard-error,
+.clipboard-empty {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.clipboard-notice {
+  color: var(--primary);
+}
+
+.clipboard-error {
+  color: var(--danger);
+}
+
+.clipboard-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  padding: 1.5rem 0;
+  justify-content: center;
+  text-align: center;
+}
+
+/* Entries */
+
+.clipboard-group {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.clipboard-group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.clip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.clip {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
+  padding: 0.7rem 0.8rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.clip.is-pinned {
+  border-color: rgba(200, 255, 114, 0.35);
+}
+
+.clip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.clip-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.clip-label {
+  font-weight: 700;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-time {
+  color: var(--muted);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.clip-actions {
+  display: flex;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+
+.clip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.32rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.clip-btn:hover {
+  border-color: rgba(200, 255, 114, 0.45);
+}
+
+.clip-btn.is-active,
+.clip-btn.is-done {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(200, 255, 114, 0.14);
+}
+
+.clip-btn.is-danger:hover {
+  border-color: rgba(200, 85, 102, 0.5);
+  color: var(--danger);
+}
+
+.clip-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.clip-body {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--text);
+  /* Long unbroken strings (tokens, URLs) must wrap rather than force the card
+     to scroll sideways. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.clip-body.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.clip-more {
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0;
+  cursor: pointer;
+}
+
+.clip-edit {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.clip-edit-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+/* Confirm dialog */
+
+.clipboard-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(2, 6, 4, 0.72);
+}
+
+.clipboard-confirm-card {
+  width: min(420px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 1.1rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.clipboard-confirm-card h3 {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.clipboard-confirm-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+@media (max-width: 560px) {
+  .clip-actions {
+    width: 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+}

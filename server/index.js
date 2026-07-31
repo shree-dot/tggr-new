@@ -478,6 +478,146 @@ app.put("/api/me/favorites", requireAuth, (req, res) => {
   res.json({ favoriteTags: [...favs] });
 });
 
+/* ---------- cloud clipboard ---------- */
+
+// Generous enough for a stack trace or a config blob, small enough that no
+// single paste can bloat the database.
+const CLIP_BODY_MAX = 50_000;
+const CLIP_LABEL_MAX = 120;
+
+const clipToJson = (row) => ({
+  id: row.id,
+  label: row.label,
+  body: row.body,
+  pinned: !!row.pinned,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+// LIKE treats these as wildcards, so a search for "100%" must not match
+// everything. Escaped with a backslash, declared via ESCAPE below.
+const escapeLike = (value) => value.replace(/[\\%_]/g, (char) => `\\${char}`);
+
+const readClipInput = (req) => {
+  const body = typeof req.body?.body === "string" ? req.body.body : "";
+  const label = typeof req.body?.label === "string" ? req.body.label.trim() : "";
+  return { body, label: label.slice(0, CLIP_LABEL_MAX) };
+};
+
+app.get("/api/clips", requireAuth, (req, res) => {
+  const query = String(req.query.query || "").trim();
+
+  const rows = query
+    ? db
+        .prepare(
+          `SELECT * FROM clips WHERE owner_uid = ?
+             AND (body LIKE ? ESCAPE '\\' OR label LIKE ? ESCAPE '\\')
+           ORDER BY pinned DESC, updated_at DESC`
+        )
+        .all(req.user.uid, `%${escapeLike(query)}%`, `%${escapeLike(query)}%`)
+    : db
+        .prepare(`SELECT * FROM clips WHERE owner_uid = ? ORDER BY pinned DESC, updated_at DESC`)
+        .all(req.user.uid);
+
+  res.json({ clips: rows.map(clipToJson) });
+});
+
+app.post("/api/clips", requireAuth, (req, res) => {
+  const { body, label } = readClipInput(req);
+  if (!body.trim()) {
+    return res.status(400).json({ error: "Nothing to save" });
+  }
+  if (body.length > CLIP_BODY_MAX) {
+    return res.status(400).json({
+      error: `That is too long to store (${body.length} characters, limit ${CLIP_BODY_MAX})`,
+    });
+  }
+
+  // Re-copying something you already saved should move it back to the top
+  // rather than leave you scrolling past duplicates, same as the OS clipboard.
+  const existing = db
+    .prepare("SELECT * FROM clips WHERE owner_uid = ? AND body = ?")
+    .get(req.user.uid, body);
+
+  if (existing) {
+    db.prepare(
+      `UPDATE clips SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+         label = CASE WHEN ? <> '' THEN ? ELSE label END
+       WHERE id = ?`
+    ).run(label, label, existing.id);
+    const row = db.prepare("SELECT * FROM clips WHERE id = ?").get(existing.id);
+    return res.json({ clip: clipToJson(row), deduped: true });
+  }
+
+  const info = db
+    .prepare("INSERT INTO clips (owner_uid, label, body) VALUES (?, ?, ?)")
+    .run(req.user.uid, label, body);
+  const row = db.prepare("SELECT * FROM clips WHERE id = ?").get(info.lastInsertRowid);
+  res.status(201).json({ clip: clipToJson(row) });
+});
+
+app.patch("/api/clips/:id(\\d+)", requireAuth, (req, res) => {
+  const clip = db
+    .prepare("SELECT * FROM clips WHERE id = ? AND owner_uid = ?")
+    .get(req.params.id, req.user.uid);
+  if (!clip) {
+    return res.status(404).json({ error: "Clip not found" });
+  }
+
+  const updates = [];
+  const values = [];
+
+  if (typeof req.body?.body === "string") {
+    if (!req.body.body.trim()) {
+      return res.status(400).json({ error: "Nothing to save" });
+    }
+    if (req.body.body.length > CLIP_BODY_MAX) {
+      return res.status(400).json({ error: "That is too long to store" });
+    }
+    updates.push("body = ?");
+    values.push(req.body.body);
+  }
+  if (typeof req.body?.label === "string") {
+    updates.push("label = ?");
+    values.push(req.body.label.trim().slice(0, CLIP_LABEL_MAX));
+  }
+  if (typeof req.body?.pinned === "boolean") {
+    updates.push("pinned = ?");
+    values.push(req.body.pinned ? 1 : 0);
+  }
+
+  if (!updates.length) {
+    return res.json({ clip: clipToJson(clip) });
+  }
+
+  // Pinning is not an edit — bumping updated_at would reshuffle the list under
+  // the user for what is really just a bookmark.
+  if (updates.some((update) => !update.startsWith("pinned"))) {
+    updates.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')");
+  }
+
+  values.push(clip.id);
+  db.prepare(`UPDATE clips SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+  const row = db.prepare("SELECT * FROM clips WHERE id = ?").get(clip.id);
+  res.json({ clip: clipToJson(row) });
+});
+
+app.delete("/api/clips/:id(\\d+)", requireAuth, (req, res) => {
+  const info = db
+    .prepare("DELETE FROM clips WHERE id = ? AND owner_uid = ?")
+    .run(req.params.id, req.user.uid);
+  if (!info.changes) {
+    return res.status(404).json({ error: "Clip not found" });
+  }
+  res.json({ ok: true });
+});
+
+// Bulk clear. Pinned entries survive — pinning is how the user says "keep this".
+app.delete("/api/clips", requireAuth, (req, res) => {
+  const info = db.prepare("DELETE FROM clips WHERE owner_uid = ? AND pinned = 0").run(req.user.uid);
+  res.json({ deleted: info.changes });
+});
+
 /* ---------- tags ---------- */
 
 // Hidden tags are excluded by default (Manage's main list). Upload surfaces

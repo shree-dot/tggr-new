@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { ScanLine } from "lucide-react";
+import { ClipboardList, ScanLine } from "lucide-react";
 import create from "../svg/create.webp";
 import upload from "../svg/upload.webp";
 import manage from "../svg/manage.webp";
@@ -59,6 +59,21 @@ const Menu = () => {
           </p>
           <Link id="cusbtn" className="menu-card-link" to="/manage">
             Go To Manage
+          </Link>
+        </article>
+
+        <article className="menu-card menu-card-clipboard">
+          {/* The other three cards use illustrations; there is no artwork for
+              this one, so a framed icon stands in at the same footprint. */}
+          <div className="menu-card-art menu-card-glyph" aria-hidden="true">
+            <ClipboardList size={44} />
+          </div>
+          <h3 className="menu-card-title">Clipboard</h3>
+          <p className="menu-card-text">
+            Paste text on one device and copy it from another. Private to you, pin what matters.
+          </p>
+          <Link id="cusbtn" className="menu-card-link" to="/clipboard">
+            Go To Clipboard
           </Link>
         </article>
       </section>

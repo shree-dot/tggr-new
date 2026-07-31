@@ -175,6 +175,16 @@ const api = {
   setFavorite: (tag, favorite) =>
     request("/api/me/favorites", { method: "PUT", body: { tag, favorite } }),
 
+  // --- cloud clipboard (private to the signed-in user) ---
+  clips: (query = "") =>
+    request(`/api/clips${query ? `?query=${encodeURIComponent(query)}` : ""}`),
+  createClip: ({ body, label = "" }) =>
+    request("/api/clips", { method: "POST", body: { body, label } }),
+  updateClip: (id, changes) =>
+    request(`/api/clips/${id}`, { method: "PATCH", body: changes }),
+  deleteClip: (id) => request(`/api/clips/${id}`, { method: "DELETE" }),
+  clearClips: () => request("/api/clips", { method: "DELETE" }),
+
   // --- hidden-tags vault ---
   setVaultToken: (token) => {
     vaultToken = token || null;
