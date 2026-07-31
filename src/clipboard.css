@@ -308,6 +308,18 @@
   overflow-wrap: anywhere;
 }
 
+.clip-link {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  /* Long URLs must break rather than widen the card. */
+  overflow-wrap: anywhere;
+}
+
+.clip-link:hover {
+  color: var(--primary-strong);
+}
+
 .clip-body.is-clamped {
   display: -webkit-box;
   -webkit-line-clamp: 6;

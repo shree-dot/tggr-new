@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import api from "../api.js";
+import { isBareLink, linkify } from "../linkify.js";
 import "../clipboard.css";
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -34,8 +35,6 @@ const timeAgo = (iso) => {
   if (days < 7) return `${days}d ago`;
   return new Date(iso).toLocaleDateString();
 };
-
-const isLink = (body) => /^https?:\/\/\S+$/i.test(body.trim());
 
 // navigator.clipboard needs a secure context and is missing on older mobile
 // browsers, so fall back to the old selection trick rather than failing.
@@ -257,10 +256,10 @@ const Clipboard = () => {
               <span>{copiedId === clip.id ? "Copied" : "Copy"}</span>
             </button>
 
-            {isLink(clip.body) ? (
+            {isBareLink(clip.body) ? (
               <a
                 className="clip-btn"
-                href={clip.body.trim()}
+                href={linkify(clip.body.trim())[0].href}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Open link"
@@ -331,7 +330,26 @@ const Clipboard = () => {
           </div>
         ) : (
           <>
-            <pre className={`clip-body${isLong && !isOpen ? " is-clamped" : ""}`}>{clip.body}</pre>
+            <pre className={`clip-body${isLong && !isOpen ? " is-clamped" : ""}`}>
+              {/* Built from React elements, never innerHTML — and linkify only
+                  ever emits http/https hrefs, so pasted text cannot smuggle in
+                  a javascript: link. */}
+              {linkify(clip.body).map((part, index) =>
+                typeof part === "string" ? (
+                  part
+                ) : (
+                  <a
+                    key={index}
+                    className="clip-link"
+                    href={part.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {part.text}
+                  </a>
+                )
+              )}
+            </pre>
             {isLong ? (
               <button
                 type="button"
